@@ -63,9 +63,9 @@ build\cmd.exe --mute -- /c ver
 
 Another build of the same files: extract them into their own `work/sys-<x>`,
 rebase into `work/rebased-<x>`, and either run the same host on them
-(`build\cmd.exe --sys workebased-<x> --nls work\sys-<x>`, when the four
+(`build\cmd.exe --sys work\rebased-<x> --nls work\sys-<x>`, when the four
 files are identical, as Server SP4's are to Pro SP4's) or lift them as
-`cmd_<x>` (`tools\lift.py cmd_rtm workebased-rtm\...`, catalogs go to
+`cmd_<x>` (`tools\lift.py cmd_rtm work\rebased-rtm\...`, catalogs go to
 `work/cat-rtm`) with a `w2k_host` entry in CMakeLists.txt like `cmd_rtm`.
 
 The host refuses to start any program that is not lifted (`[guard]` on
