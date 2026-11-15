@@ -1,0 +1,155 @@
+"""hiddenrun.py - run a program on a private, invisible desktop and screenshot its windows.
+
+    python tools/hiddenrun.py --secs 30 --shot 10 --shot 25 --out out/run -- build/johnny.exe /s
+
+Nothing appears on the real screens. Each --shot T writes <out>_T.png: every
+visible top-level window of the process, read from its window DC, pasted at its screen position. Stdout/stderr of the
+program go to <out>.log. The process tree is killed at --secs.
+"""
+import argparse, os, ctypes, ctypes.wintypes as W, subprocess, time
+from PIL import Image
+
+u32, k32, g32 = ctypes.windll.user32, ctypes.windll.kernel32, ctypes.windll.gdi32
+u32.CreateDesktopW.restype = W.HANDLE
+
+
+def windows_of(pid, desk):
+    out = []
+    cb = ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
+    def f(h, _):
+        p = W.DWORD(); u32.GetWindowThreadProcessId(h, ctypes.byref(p))
+        if p.value != os.getpid() and u32.IsWindowVisible(h):   # the private desktop holds only the run's process tree (hold_image relaunches)
+            out.append(h)
+        return True
+    u32.EnumDesktopWindows(W.HANDLE(desk), cb(f), 0)
+    return out
+
+
+def grab(h):
+    r = W.RECT(); u32.GetWindowRect(h, ctypes.byref(r))
+    w, hh = r.right - r.left, r.bottom - r.top
+    if w <= 0 or hh <= 0:
+        return None, r
+    # BitBlt from the window's own DC sends no message, so a busy window
+    # cannot hang the capture (PrintWindow would wait on its WM_PRINT).
+    sdc = u32.GetWindowDC(h); mdc = g32.CreateCompatibleDC(sdc)
+    bmp = g32.CreateCompatibleBitmap(sdc, w, hh); g32.SelectObject(mdc, bmp)
+    # PrintWindow renders the window alone; a BitBlt from its DC also reads
+    # whatever screen pixels lie under it (the user's desktop).
+    u32.PrintWindow(h, mdc, 2)   # PW_RENDERFULLCONTENT
+    buf = ctypes.create_string_buffer(w * hh * 4)
+    bi = (ctypes.c_uint32 * 10)(40, w, (-hh) & 0xFFFFFFFF, 1 | (32 << 16), 0, 0, 0, 0, 0, 0)
+    g32.GetDIBits(mdc, bmp, 0, hh, buf, bi, 0)
+    g32.DeleteObject(bmp); g32.DeleteDC(mdc); u32.ReleaseDC(h, sdc)
+    return Image.frombuffer('RGBA', (w, hh), buf, 'raw', 'BGRA', 0, 1).convert('RGB'), r
+
+
+class STARTUPINFO(ctypes.Structure):
+    _fields_ = [('cb', W.DWORD), ('lpReserved', W.LPWSTR), ('lpDesktop', W.LPWSTR), ('lpTitle', W.LPWSTR),
+                ('x', W.DWORD), ('y', W.DWORD), ('cx', W.DWORD), ('cy', W.DWORD), ('cxc', W.DWORD),
+                ('cyc', W.DWORD), ('fill', W.DWORD), ('dwFlags', W.DWORD), ('wShow', W.WORD),
+                ('cb2', W.WORD), ('r2', ctypes.c_void_p), ('hIn', W.HANDLE), ('hOut', W.HANDLE), ('hErr', W.HANDLE)]
+
+
+class PI(ctypes.Structure):
+    _fields_ = [('hProcess', W.HANDLE), ('hThread', W.HANDLE), ('pid', W.DWORD), ('tid', W.DWORD)]
+
+
+class Proc:
+    def __init__(s, pi): s.h, s.pid = pi.hProcess, pi.pid
+    def poll(s):
+        c = W.DWORD(); k32.GetExitCodeProcess(s.h, ctypes.byref(c))
+        return None if c.value == 259 else c.value
+
+
+def launch(cmd, desktop, logpath):
+    import msvcrt, os
+    log = open(logpath, 'w')
+    h = msvcrt.get_osfhandle(log.fileno())
+    os.set_handle_inheritable(h, True)
+    si = STARTUPINFO(); si.cb = ctypes.sizeof(si); si.lpDesktop = desktop
+    si.dwFlags = 0x100; si.hOut = si.hErr = h
+    pi = PI()
+    if not k32.CreateProcessW(None, ctypes.create_unicode_buffer(subprocess.list2cmdline(cmd)),
+                              None, None, True, 0, None, None, ctypes.byref(si), ctypes.byref(pi)):
+        raise OSError(ctypes.GetLastError())
+    return Proc(pi)
+
+
+def preview_window(desk, w, h):
+    """A plain window standing in for the Control Panel's preview box, owned
+    by a thread on the hidden desktop that keeps pumping its messages."""
+    import threading
+    got = []
+    def run():
+        u32.SetThreadDesktop(W.HANDLE(desk))
+        u32.CreateWindowExW.restype = W.HWND
+        hw = u32.CreateWindowExW(0, 'STATIC', 'preview', 0x10000000 | 0x00800000, 50, 50, w, h,
+                                 None, None, None, None)   # WS_VISIBLE | WS_BORDER
+        got.append(hw)
+        msg = W.MSG()
+        while u32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            u32.TranslateMessage(ctypes.byref(msg)); u32.DispatchMessageW(ctypes.byref(msg))
+    threading.Thread(target=run, daemon=True).start()
+    while not got:
+        time.sleep(0.05)
+    return got[0]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--secs', type=float, default=30)
+    ap.add_argument('--shot', type=float, action='append', default=[])
+    ap.add_argument('--out', default='out/run')
+    ap.add_argument('--preview', metavar='WxH', help='make a window this size on the hidden desktop '
+                    'and pass its handle where the command says {hwnd} (a screen saver /p)')
+    ap.add_argument('--end-at', type=float, help='at this second, close the preview window (--preview) '
+                    'or press a key in the window of the program, as a person ending a screen saver would')
+    ap.add_argument('cmd', nargs=argparse.REMAINDER)
+    a = ap.parse_args()
+    cmd = a.cmd[1:] if a.cmd[:1] == ['--'] else a.cmd
+    name = 'pcrecomp_hidden'
+    desk = u32.CreateDesktopW(name, None, None, 0, 0x10000000, None)
+    if a.preview:
+        hwnd = a.preview_hwnd = preview_window(desk, *map(int, a.preview.split('x')))
+        cmd = [c.replace('{hwnd}', str(hwnd)) for c in cmd]
+    p = launch(cmd, name, a.out + '.log')
+    t0 = time.time()
+    import threading
+    th = threading.Thread(target=shots, args=(a, p, desk, t0)); th.start(); th.join()
+    ended = False
+    while time.time() - t0 < a.secs and p.poll() is None:
+        if a.end_at is not None and not ended and time.time() - t0 >= a.end_at:
+            ended = True
+            for h in ([a.preview_hwnd] if a.preview else windows_of(p.pid, desk)):
+                if a.preview: u32.PostMessageW(h, 0x0010, 0, 0)                 # WM_CLOSE
+                else: u32.PostMessageW(h, 0x0100, 0x20, 0x00390001)             # WM_KEYDOWN space
+            print(f'{a.end_at}s: ended')
+        time.sleep(0.2)
+    print('exit', p.poll(), f'after {time.time() - t0:.1f}s')
+    subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
+    u32.CloseDesktop(desk)
+
+
+def shots(a, p, desk, t0):
+    # GDI reads across desktops come back black: capture from a thread that
+    # has joined the hidden desktop.
+    u32.SetThreadDesktop(W.HANDLE(desk))
+    for t in sorted(a.shot):
+        while time.time() - t0 < t and p.poll() is None:
+            time.sleep(0.1)
+        hs = [a.preview_hwnd] if a.preview else windows_of(p.pid, desk)
+        shots = [grab(h) for h in hs]
+        shots = [s for s in shots if s[0]]
+        if not shots:
+            print(f'{t}s: no window'); continue
+        x0 = min(r.left for _, r in shots); y0 = min(r.top for _, r in shots)
+        W_ = max(r.right for _, r in shots) - x0; H_ = max(r.bottom for _, r in shots) - y0
+        canvas = Image.new('RGB', (W_, H_))
+        for img, r in reversed(shots):   # EnumWindows is top-first; paint bottom-up
+            canvas.paste(img, (r.left - x0, r.top - y0))
+        path = f'{a.out}_{int(t)}.png'; canvas.save(path); print(f'{t}s: {path} {canvas.size}')
+
+
+if __name__ == '__main__':
+    main()
