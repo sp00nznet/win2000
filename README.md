@@ -13,7 +13,7 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 | Stage | What | State |
 |---|---|---|
 | 1 | Stock accessories lifted on native32 against the host's DLLs | winmine, sol, freecell, notepad and calc run |
-| 2 | Win2000's own ntdll + kernel32 + msvcrt lifted, `int 2Eh` mapped to the host by a syscall shim; cmd.exe on top | cmd.exe runs: banner, ver, echo, dir, set, exit N. `cd` does not change directory yet |
+| 2 | Win2000's own ntdll + kernel32 + msvcrt lifted and started by ntdll's own LdrInitializeThunk; `int 2Eh` and csrss's LPC port are the only boundary; cmd.exe on top | cmd.exe runs on Pro SP4, Server SP4 and build 2163: ver, echo, cd, dir, if, for, set, exit N |
 | 3 | user32/gdi32 lifted, win32k calls shimmed; winmine on them | not started |
 
 ## Building
@@ -60,6 +60,16 @@ build\cmd.exe --mute -- /c ver
 ```
 
 (In Git Bash set `MSYS_NO_PATHCONV=1`, or `/c` arrives as `C:/`.)
+
+Another build of the same files: extract them into their own `work/sys-<x>`,
+rebase into `work/rebased-<x>`, and either run the same host on them
+(`build\cmd.exe --sys workebased-<x> --nls work\sys-<x>`, when the four
+files are identical, as Server SP4's are to Pro SP4's) or lift them as
+`cmd_<x>` (`tools\lift.py cmd_rtm workebased-rtm\...`, catalogs go to
+`work/cat-rtm`) with a `w2k_host` entry in CMakeLists.txt like `cmd_rtm`.
+
+The host refuses to start any program that is not lifted (`[guard]` on
+stderr): no original Windows 2000 binary is ever run natively.
 `NATIVE32_SYSCALLS=1` traces every system call and csrss request;
 `--calltrace FILE` every lifted function entry. `tools/addr2name.py` names
 guest addresses by the nearest export; `tools/faultline.sh` shows the lifted C

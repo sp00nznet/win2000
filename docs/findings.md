@@ -49,82 +49,103 @@ Gaps found, and what happened to them:
 
 ## Stage 2: cmd.exe on Windows 2000's own kernel32 + ntdll
 
-**Result:** `cmd /c ver` prints `Microsoft Windows 2000 [Version 5.00.2195]`
-and exits 0. Interactively (commands on stdin) the banner, prompt, `echo`,
-`ver`, `dir` (NtQueryDirectoryFile, real listing), `set`, `exit 7` (exit
-code 7) work. cmd.exe, msvcrt.dll, kernel32.dll and ntdll.dll are all
-Windows 2000 SP4's own code, lifted (20,363 dispatch entries). Only USER32
-(4 calls) and ADVAPI32 (registry) still bind to the host's DLLs.
+**Result:** Windows 2000's own cmd.exe, msvcrt.dll, kernel32.dll and
+ntdll.dll, all lifted (about 20,400 dispatch entries), run on Windows 11.
+Process start is the guest's own: the host maps the lifted modules and calls
+ntdll's `LdrInitializeThunk`, which creates the heap, loads the NLS tables,
+builds the loader lists, snaps every import and runs every DllMain, as on
+Windows 2000. The host carries no build-specific address.
+
+Three builds, one host source and one runtime (transcripts in `shots/`):
+
+| Build | Source | `ver` | Session |
+|---|---|---|---|
+| Professional SP4, 5.00.2195 | EN_WIN2000_PRO_SP4.ISO | `Microsoft Windows 2000 [Version 5.00.2195]` | all commands below |
+| Server SP4, 5.00.2195 | windows-2000-server-sp4.iso | same | same; its cmd/kernel32/ntdll/msvcrt are byte-identical to Pro SP4's, so `build\cmd.exe --sys work\rebased-server --nls work\sys-server` runs Server's own files on the same lift |
+| build 2163 (pre-release) | pro.zip's ISO | `Microsoft Windows 2000 [Version 5.00.2163]` | all commands below; own lift (`build\cmd_rtm.exe`), different service numbers, different csrss data layout |
+
+Session, the same in all three: banner, `echo`, `ver`, `cd work`, `cd`,
+`if exist sys\cmd.exe ...`, `for %f in (sys\c*.nls) do @echo %f`, `cd ..`,
+`dir /w`, `set COMSPEC`, `exit 7` (exit code 7). Starting
+`work\sys\calc.exe` (Windows 2000's original) is refused by the guard.
 
 Modules are rebased below the host's system DLLs: ntdll 0x20000000,
-kernel32 0x20100000, msvcrt 0x20200000, cmd.exe at its own 0x4AD00000.
+kernel32 0x20100000, msvcrt 0x20200000; cmd.exe stays at 0x4AD00000.
 
-### The boundary
+### The boundary (pcrecomp native32 syscall32.c, csr32.c)
 
 - **System calls.** lift32 turns `int 2Eh` into `recomp_syscall()`. The
-  service table is read from the guest ntdll's own stubs (number and argument
-  count); the Windows backend calls the host ntdll export of the same name.
-  248 services, 10 with no Windows 11 counterpart; none of those 10 is hit by
-  cmd. Every NT call cmd's startup and these commands make (file, directory,
-  section, virtual memory, event, token, registry, volume) worked unchanged
-  through the host's ntdll. Overrides: NtQueryInformationProcess (guest PEB),
-  NtOpenSection (csrss's named NLS sections), NtTerminateProcess (host flush).
-- **csrss.** Another process on Windows 2000, so it is answered in the host
-  (pcrecomp csr32.c), replacing ntdll's two CsrClient* exports:
-  - connect to basesrv: BASE_STATIC_SERVER_DATA (directories, version,
-    SYSTEM_BASIC_INFORMATION at 0x124, time of day) via
-    `Peb->ReadOnlyStaticServerData[1]`;
-  - connect to consrv: CONSOLE_INFO with the host's std handles and the two
-    init events (the first signaled). With real host handles, Windows 2000's
-    kernel32 writes and reads the console through NtWriteFile/NtReadFile.
-  - basesrv api 26 (NlsGetUserInfo): UserLocaleId at +0x1860. Without it
-    `LCMapStringW(0, ...)` failed, msvcrt's locale-aware towupper/_wcsicmp
-    returned the input, and cmd recognised no built-in typed in lower case
-    (`VER` worked, `ver` did not).
-  - About 90 console api calls per session (2:520, 529, 550, 551, 575, ...)
-    are logged and answered with success and an empty reply. Output is
-    unaffected because stdout is a file or pipe; a real console window needs
-    them implemented.
-- **NLS sections.** kernel32 opens `\NLS\NlsSectionUnicode`, `CType`,
-  `Locale`, `Sortkey00000409`: served from Windows 2000's own .nls files. The
-  per-locale sort section is sortkey.nls with its first WORD set to 1
-  ("built"); with 0 kernel32 sleeps forever waiting for csrss to finish it.
+  service table comes from the guest ntdll's own stubs (number and argument
+  count), so each build brings its own numbering; the Windows backend calls
+  the host ntdll export of the same name. File, directory, section, memory,
+  event, token and registry services work unchanged through the host.
+- **The kernel's part of process creation** (`native32_nt_boot`): a PEB with
+  the fields the kernel fills (image base, process parameters, NLS table
+  pointers, OS version from the guest ntdll's version resource, heap
+  defaults, subsystem, session), process parameters with a MAX_PATH current
+  directory buffer and an open handle to it, the initial CONTEXT for
+  `LdrInitializeThunk`.
+- **Image sections.** The guest loader opens a DLL file and makes an image
+  section of it. `NtCreateSection(SEC_IMAGE)` on a lifted module's file
+  returns that module's existing mapping; on a host DLL (USER32 and ADVAPI32
+  for cmd.exe, SHELL32 when cmd asks for it) a *proxy image*, a PE header
+  and export directory whose exports are the host DLL's functions (the host
+  resolves forwarders and API sets); `\KnownDlls` is hidden so the loader
+  never maps the host's own system DLL sections.
+- **The guard.** An EXE image that is not lifted is never mapped; process
+  creation is refused; and a proxy's CreateProcess*/ShellExecute*/WinExec
+  exports are refusals. That last one is from a test: with only the first
+  two, cmd.exe fell back to the host shell32's ShellExecuteEx and the host
+  ran the program (whoami.exe, a host binary, in that test). Now every route
+  tried (an original Windows 2000 EXE, a host EXE, `start`) prints `[guard]`
+  and cmd reports an error.
+- **csrss** is answered at its LPC port: `NtSecureConnectPort` to
+  `...\Windows\ApiPort` maps the client's port memory and returns the connect
+  info (the static server data array, a shared section), so ntdll's own CSR
+  client code sets up CsrPortHeap and the PEB; `NtRequestWaitReplyPort`
+  dispatches the api:
+  - csrsrv ClientConnect, consrv: CONSOLE_INFO with the host's std handles and
+    the two init events. With real host handles, Windows 2000's kernel32
+    reads and writes the console through NtReadFile/NtWriteFile.
+  - basesrv 26 NlsGetUserInfo (2195): UserLocaleId. Build 2163 reads the
+    same structure from the static data at 0x184 instead.
+  - every other api gets an empty reply. Build 2163's GetConsoleOutputCP read
+    stack garbage from the unanswered reply until then, and every write
+    failed.
+  - csrss's `NlsCacheMutant` (2163) is made when opened.
+  - the BASE_STATIC_SERVER_DATA (directories, version, SYSTEM_BASIC_INFORMATION
+    at 0x124, time of day) is the same in both builds up to 0x184.
+- **csrss's NLS sections** (`\NLS\NlsSection*`) are served from the build's
+  own .nls files; the per-locale sort section is sortkey.nls with its first
+  WORD set to 1 ("built"), or kernel32 waits for csrss forever.
 
-### What the host does instead of LdrpInitializeProcess
+### Lifter and toolkit gaps this found (fixed in pcrecomp)
 
-The host's loader (pcrecomp modules32) maps and binds; ntdll's own process
-init is not run. So the host does its steps itself, all SP4-specific
-addresses, found by reading the lifted code:
+| Gap | Symptom | Fix |
+|---|---|---|
+| `int 2Eh` lifted as a trap | no system calls | `recomp_syscall` |
+| forwarder exports seeded and lifted as code; native32_export returned the string | msvcrt's HeapAlloc jumped into "NTDLL.RtlAllocateHeap" | ExportEntry.forwarder; native32_export follows forwarders |
+| SEH `__finally` blocks / filters not seeded | `cd` failed: unresolved call from `_local_unwind2` | disasm32 `seh_entries` |
+| flags not carried into a body entered by `jmp` | every export lookup's hint check failed (CF read 0) | generate: `RECOMP_FLAGS_IN` at such entries; hidden by RECOMP_TRACE builds, which always reload |
+| bound imports kept by rebase | the loader would trust stale IAT addresses | rebase drops them |
+| `find_splits` IndexError on a branch below the code section | kernel32 would not lift | range check |
+| image-section handles reused by the host | msvcrt's imports looked up in the user32 proxy | the image table forgets closed handles |
 
-| Step | How |
-|---|---|
-| NT 5 PEB, process parameters, NLS tables | native32_nt_process (pcrecomp) |
-| RtlpInitDeferedCriticalSection (0x20003A3B, seeds the critical sections' debug-info pool) | native32_nt_preinit |
-| RtlInitializeHeapManager (0x20003B6A, heap-list lock, Peb->ProcessHeaps) | native32_nt_preinit |
-| process heap | the guest's RtlCreateHeap |
-| RtlAllocateStringRoutine / RtlFreeStringRoutine globals | host writes 0x2004F1BC/0x2004F1B0 |
-| loader lists + LdrpHashTable (0x2004F040) | native32_nt_module through the guest's LdrpInsertMemoryTableEntry (0x2000EEFB) |
-| CsrPortHeap (0x2004F634) | host sets it to the process heap |
-
-Windows 2000 SP4's `.dbg` symbols are not on Microsoft's symbol server (404),
-so these were found from the lifted C: the writer of a global, the caller of
-a function, the global a crash dereferenced.
+Windows 2000's `.dbg` symbols are not on Microsoft's symbol server, so every
+layout here was read off the lifted code: the global a function stores, the
+offsets a caller reads, the global a crash dereferenced.
 
 ### Gaps left
 
-- `cd DIR` does not change the directory, and relative paths (`if exist`,
-  `for`) then find nothing; no NtOpenFile is issued, so the failure is above
-  the boundary (current-directory handling in lifted kernel32/ntdll, or the
-  process parameters' CurrentDirectory). Not investigated yet.
-- Starting an external program would go through Windows 2000 kernel32's
-  CreateProcessW (NtCreateProcess + NtCreateThread + csrss): not supported,
-  and it must never start a non-recompiled Windows 2000 binary natively.
-- Console APIs to csrss are stubbed (above); no real console window yet.
-- The LdrpInitializeProcess replacement is a list of SP4 addresses. The
-  better design is to run the guest's own LdrpInitializeProcess with the
-  kernel's part emulated (image sections for pre-mapped modules in
-  NtCreateSection/NtMapViewOfSection, loader entries marked processed).
-- Threads (NtCreateThread with a Win2000 CONTEXT/INITIAL_TEB), APCs, and
-  user-mode callbacks (KiUserCallbackDispatcher, `int 2Bh`) are not wired;
-  stage 3 (user32/gdi32 on win32k) needs the callbacks.
-- No screenshot for cmd: its output is the evidence (transcripts in shots/).
+- Console csrss apis are answered empty: fine while stdout is a file or a
+  pipe; a real console window (and `cls`, `color`, cursor control) needs
+  them implemented.
+- Programs cmd starts are refused (the guard). Running a *lifted* child
+  needs process creation that starts another host with the child's lift.
+- Guest exceptions raised through `NtRaiseException`/`KiUserExceptionDispatcher`
+  are not wired (native32's own SEH covers lifted code's RaiseException);
+  threads (NtCreateThread with a Windows 2000 CONTEXT/INITIAL_TEB), APCs and
+  user-mode callbacks (`int 2Bh`) are not wired either. Stage 3
+  (user32/gdi32 on win32k) needs the callbacks.
+- The proxy images give host functions to a Windows 2000 caller as-is; a
+  host function whose structures changed since 2000 would need a shim.

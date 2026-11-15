@@ -46,3 +46,10 @@ option(W2K_TRACE "ring buffer of lifted function entries in the cmd host" ON)
 if(TARGET cmd AND W2K_TRACE)
   target_compile_definitions(cmd PRIVATE RECOMP_TRACE=1)
 endif()
+
+# The same host for another Windows 2000 build: pro.zip's ISO is build 2163
+# (a pre-release), lifted into src/gen/cmd_rtm from work/rebased-rtm.
+w2k_host(cmd_rtm src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c)
+if(TARGET cmd_rtm)
+  target_compile_definitions(cmd_rtm PRIVATE RECOMP_TRACE=1 W2K_SYS="work/rebased-rtm" W2K_NLS="work/sys-rtm" W2K_CSD=0)
+endif()

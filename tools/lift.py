@@ -33,7 +33,8 @@ def main():
         sys.exit(__doc__)
     name, mods = sys.argv[1], sys.argv[2:]
     out = os.path.join(ROOT, 'src', 'gen', name)
-    cat_dir = os.path.join(ROOT, 'work', 'cat')
+    # A catalog per build: the same file name is different code in another build.
+    cat_dir = os.path.join(ROOT, 'work', 'cat' if name == 'cmd' or '_' not in name else 'cat-' + name.split('_', 1)[1])
     os.makedirs(cat_dir, exist_ok=True)
     entries, stats = [], {}
     for m in mods:
