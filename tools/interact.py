@@ -10,6 +10,7 @@ GetTickCount). Shots: shots/int_<build>_<t>.png.
 """
 import os, subprocess, sys
 from PIL import Image, ImageChops
+Image.MAX_IMAGE_PIXELS = None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STEPS = [('start', 4, []), ('click', 5.4, ['--click', '30,80@5']), ('intermediate', 8, ['--command', '522@7']),

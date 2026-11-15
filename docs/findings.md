@@ -418,3 +418,23 @@ WND here still has only the handle, self pointer and procedure. That is the
 next piece: the WND's style, rectangles, class, fnid and extra bytes kept in
 step with the host window. Message delivery is still the host calling the
 guest's procedure directly, not KiUserCallbackDispatcher.
+
+### The Custom dialog (in progress)
+
+Windows 2000's dialog manager now builds winmine's Custom dialog through the
+lifted user32: the #32770 window, its DIALOG structure, its controls, WM_SETFONT,
+ShowWindow, its message loop. Read off user32's dialog code:
+- ValidateDialogPwnd: WND+0x16 bit 0 (DIALOG attached), else WND+0x88
+  cbwndExtra >= DLGWINDOWEXTRA and NtUserCallHwndParam 0x43 attaches it at
+  WND+0x9C (the extra bytes; the Windows 2000 WND is 0x9C bytes). A window of a
+  host class never calls the guest while it is made, so its WND is entered when
+  CreateWindowEx returns.
+- NtUserMessageCall fnid 0x2AE is SendMessage.
+- A template's control ordinal (0x80 Button .. 0x85 ComboBox) becomes an atom
+  from SERVERINFO+0x1A0; dialog base units at +0x800/+0x804.
+
+Still wrong: the dialog is created at (-13108, -13108), 0xCCCC sign-extended,
+an uninitialised position on user32's side, so it is off screen and the step
+does not compare yet. Start, a cell click and Game > Intermediate stay
+pixel-identical. Message delivery is still the host calling the guest's
+procedures; the callback path and a menu-open state are not started.
