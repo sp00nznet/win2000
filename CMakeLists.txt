@@ -68,3 +68,17 @@ if(TARGET ntwmgdi)
     EXE_BASE=0x01000000u W2K_SYS="work/rebased-gdi" W2K_NLS="work/sys" W2K_CSD=0x0400 W2K_GDI_LAYER=1
     "W2K_MORE_MODS=,{\"gdi32.dll\",0x20400000u}")
 endif()
+
+# More accessories on lifted gdi32 + host user32, growing w32kgdi.c
+function(w2k_gdi_host name exe)
+  w2k_host(${name} src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c ${N32}/w32kgdi.c)
+  if(TARGET ${name})
+    target_compile_definitions(${name} PRIVATE RECOMP_TRACE=1 W2K_EXE="${exe}" W2K_EXE_W=L"${exe}"
+      EXE_BASE=0x01000000u W2K_SYS="work/rebased-gdi" W2K_NLS="work/sys" W2K_CSD=0x0400 W2K_GDI_LAYER=1
+      "W2K_MORE_MODS=,{\"gdi32.dll\",0x20400000u}${ARGN}")
+  endif()
+endfunction()
+w2k_gdi_host(gdisol sol.exe ",{\"cards.dll\",0x20500000u}")
+w2k_gdi_host(gdifreecell freecell.exe ",{\"cards.dll\",0x20500000u}")
+w2k_gdi_host(gdinotepad notepad.exe)
+w2k_gdi_host(gdicalc calc.exe)

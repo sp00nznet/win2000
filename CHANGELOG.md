@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- sol, freecell, calc, notepad on lifted gdi32 (`build/gdi<app>.exe`), all
+  pixel-identical to stage 1; `tools/gdicmp.py`; `W2K_FIXED_TIME`,
+  `W2K_IAT_DUMP`, `W2K_PEEK` diagnostics.
 - `build/ntwmgdi.exe`: winmine on Windows 2000's own lifted gdi32 (host
   user32), pixel-identical to the host-gdi32 render; pcrecomp w32kgdi.c.
 - Stage 3 probe: `build/ntwinmine.exe`, winmine with its own lifted user32

@@ -267,3 +267,50 @@ guest's loader, not native32, snaps the imports now.
 - gdi32's TEB batch (`TEB+0x1D4`, used for font selection and some fills,
   flushed by NtGdiFlushUserBatch) is not processed;
 - the host->guest handle lookup is a linear scan.
+
+## The GDI layer on all five accessories
+
+Every Windows 2000 accessory from stage 1 now draws on its own lifted gdi32
+(host user32), each compared pixel by pixel with its stage 1 render on the
+host's gdi32 (`tools/gdicmp.py <app>`, PrintWindow on a private desktop):
+
+| App | Window | Pixels differing | Lifted |
+|---|---|---|---|
+| winmine | 170x256 | 0 | winmine, ntdll, kernel32, msvcrt, gdi32 |
+| sol | 601x443 | 0 | + cards.dll |
+| freecell | 640x480 | 0 | + cards.dll |
+| calc | 270x267 | 0 | |
+| notepad (a text file open) | 1440x737 | 0 | |
+
+None of the runs left a win32k service unanswered or a batch command
+dropped. Solitaire deals at random from `time()`: `W2K_FIXED_TIME` fixes it
+in both hosts so the two runs deal the same hand.
+
+What each program added to pcrecomp's w32kgdi.c:
+- **freecell**: gdi32's TEB batch. PatBlt is not a system call on Windows
+  2000; it is queued in the TEB (command 0, 0x34 bytes) and win32k runs the
+  queue on entry to any GDI service. Without it freecell's table stayed
+  unpainted. Also text extents and an information DC (NtGdiOpenDCW).
+- **sol** (cards.dll): bitmaps from host user32's LoadBitmap, GetObject,
+  GetPixel, the DC origin, the brush origin (batch command 4 and DC_ATTR
+  +0x1B0).
+- **calc**: owner-drawn buttons. Host user32 hands the window procedure its
+  own HDC in WM_DRAWITEM, calc sets colours with the lifted gdi32 and draws
+  with host user32's DrawText/DrawEdge. So: native32_cb_in/out (a look at
+  every Windows -> guest call) translates the HDCs window messages carry
+  (WM_DRAWITEM, WM_ERASEBKGND, WM_CTLCOLOR* and its brush back, WM_PRINT...),
+  DefWindowProc/DefDlgProc/CallWindowProc translate them back, and host
+  user32's drawing functions take a guest DC with its DC_ATTR applied. Also
+  csrss's IniFileMapping (BASE_STATIC_SERVER_DATA+0x180), empty, so
+  GetProfileInt reads win.ini instead of crashing.
+- **notepad**: fonts (NtGdiHfontCreate, text metrics and face, DC_ATTR+0x90),
+  WM_SETFONT/WM_GETFONT, and its edit buffer: EM_SETHANDLE passes an HLOCAL
+  from the lifted kernel32's heap, which the host's edit control cannot use,
+  so the text goes over instead.
+
+The host -> guest handle lookup became a hash (freed indices are reused).
+
+Gaps left in the layer: font enumeration opens with no fonts (the Windows
+2000 ENUMFONTDATAW layout is not filled in; notepad copes); EM_GETHANDLE
+still answers the host's buffer (notepad's save path); DC_ATTR mapping mode,
+stretch mode and the rest; any NtGdi* service none of the five uses.

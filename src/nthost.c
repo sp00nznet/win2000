@@ -67,6 +67,13 @@ static LONG CALLBACK crash(EXCEPTION_POINTERS* ep) {
 
 static DWORD WINAPI watchdog(LPVOID unused) {
     (void)unused;
+    if (getenv("W2K_PEEK")) {          /* W2K_PEEK=addr,addr,...: dwords at the watchdog */
+        char buf[512], *t, *ctx = NULL;
+        strncpy(buf, getenv("W2K_PEEK"), sizeof buf - 1);
+        Sleep(g_watchdog_s * 1000 - 500);
+        for (t = strtok_s(buf, ",", &ctx); t; t = strtok_s(NULL, ",", &ctx))
+            fprintf(stderr, "[peek] %08X = %08X\n",(uint32_t)strtoul(t, NULL, 16), MEM32(strtoul(t, NULL, 16)));
+    }
     Sleep(g_watchdog_s * 1000);
     fprintf(stderr, "\n[watchdog] %lu s: in sub_%08X, last native call %s\n", g_watchdog_s, g_cur_func, g_cur_import);
     fflush(stderr);
@@ -93,6 +100,15 @@ static uint32_t w32k_gdi_init(uint32_t* a) {
         MEM32(native32_guest_peb + 0x94) = (uint32_t)(uintptr_t)VirtualAlloc(NULL, 0x80000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);   /* + the shared data after it (gdi32 reads +0x40094) */
     return 1;
 }
+/* W2K_FIXED_TIME=seconds: the lifted msvcrt's time() answers that (a lifted
+ * function in the guest model: argument on the stack, result in eax). */
+static void fixed_time(void) {
+    uint32_t v = strtoul(getenv("W2K_FIXED_TIME"), NULL, 0), p = MEM32(g_esp + 4);
+    if (p) MEM32(p) = v;
+    g_eax = v;
+    g_esp += 4;
+}
+
 static int host_main(int argc, char** argv) {
     const char* sys = W2K_SYS, *nlsdir = W2K_NLS;
     char dir[MAX_PATH], nls[MAX_PATH];
@@ -186,6 +202,21 @@ static int host_main(int argc, char** argv) {
 #ifdef W2K_GDI_LAYER
     if (!native32_gdi_start(native32_module("gdi32.dll"))) fprintf(stderr, "gdi32 has no GdiDllInitialize\n");
 #endif
+    if (getenv("W2K_FIXED_TIME") && native32_module("msvcrt.dll"))
+        native32_replace(native32_export(native32_module("msvcrt.dll"), "time"), fixed_time);
+    if (getenv("W2K_IAT_DUMP")) {          /* imports the guest's loader left unsnapped */
+        IMAGE_NT_HEADERS32* h = (IMAGE_NT_HEADERS32*)(uintptr_t)(EXE_BASE + MEM32(EXE_BASE + 0x3C));
+        IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)(uintptr_t)(EXE_BASE +
+            h->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+        for (; d->Name; d++) {
+            uint32_t* iat = (uint32_t*)(uintptr_t)(EXE_BASE + d->FirstThunk);
+            uint32_t* ilt = (uint32_t*)(uintptr_t)(EXE_BASE + (d->OriginalFirstThunk ? d->OriginalFirstThunk : d->FirstThunk));
+            for (; *ilt; ilt++, iat++)
+                if (*iat < 0x10000)
+                    fprintf(stderr, "[iat] %s!%s = %08X\n",(char*)(uintptr_t)(EXE_BASE + d->Name),
+                            *ilt & 0x80000000u ? "#ord" : (char*)(uintptr_t)(EXE_BASE + *ilt + 2), *iat);
+        }
+    }
     IMAGE_NT_HEADERS32* nt = (IMAGE_NT_HEADERS32*)(uintptr_t)(EXE_BASE + MEM32(EXE_BASE + 0x3C));
     uint32_t entry = EXE_BASE + nt->OptionalHeader.AddressOfEntryPoint;
     fprintf(stderr, "%s: %u lifted functions, entering 0x%08X\n", W2K_EXE, recomp_dispatch_count, entry);

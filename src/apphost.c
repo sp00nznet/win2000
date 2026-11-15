@@ -59,6 +59,14 @@ static DWORD WINAPI watchdog(LPVOID unused) {
     return 0;
 }
 
+/* W2K_FIXED_TIME=seconds: msvcrt's time() answers that, for runs that must
+ * repeat (Solitaire seeds its deal with it). */
+static unsigned __cdecl fixed_time(unsigned* t) {
+    unsigned v = (unsigned)strtoul(getenv("W2K_FIXED_TIME"), NULL, 0);
+    if (t) *t = v;
+    return v;
+}
+
 static int host_main(int argc, char** argv) {
     const char* sys = "work\\sys";
     char dir[MAX_PATH];
@@ -92,6 +100,7 @@ static int host_main(int argc, char** argv) {
         _snprintf(g_cmd_a, sizeof g_cmd_a - 1, "%s%s", APP_EXE, tail);
         native32_set_command_line(g_cmd_a);
     }
+    if (getenv("W2K_FIXED_TIME")) native32_redirect("time", (void*)fixed_time);   /* a repeatable deal (tools/gdicmp.py) */
     native32_init();
     AddVectoredExceptionHandler(0, crash);
     if (!native32_modules_map(dir, dir, g_mods, NMODS)) return 1;
