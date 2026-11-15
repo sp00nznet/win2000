@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- Full win32k, first milestone: `build/ntwinmine.exe` creates, shows and
+  paints winmine's window through Windows 2000's own user32 and gdi32
+  (pcrecomp w32kuser.c).
 - sol, freecell, calc, notepad on lifted gdi32 (`build/gdi<app>.exe`), all
   pixel-identical to stage 1; `tools/gdicmp.py`; `W2K_FIXED_TIME`,
   `W2K_IAT_DUMP`, `W2K_PEEK` diagnostics.

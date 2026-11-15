@@ -157,7 +157,9 @@ static int host_main(int argc, char** argv) {
         if ((w[n] = native32_module("user32.dll")) != 0) n++;
         if ((w[n] = native32_module("gdi32.dll")) != 0) n++;
         if (n) native32_nt_win32k(w, (int)n, "work/names/win32k_2000sp4.txt");
-#ifdef W2K_GDI_LAYER
+#if defined(W2K_USER_LAYER)
+        if (n) native32_gdi_install(), native32_user_install();   /* win32k: w32kgdi.c + w32kuser.c */
+#elif defined(W2K_GDI_LAYER)
         if (n) native32_gdi_install();      /* GDI on the host's GDI (pcrecomp w32kgdi.c) */
 #else
         if (n) native32_nt_win32k_override("NtGdiInit", w32k_gdi_init);

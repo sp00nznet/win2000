@@ -314,3 +314,45 @@ Gaps left in the layer: font enumeration opens with no fonts (the Windows
 2000 ENUMFONTDATAW layout is not filled in; notepad copes); EM_GETHANDLE
 still answers the host's buffer (notepad's save path); DC_ATTR mapping mode,
 stretch mode and the rest; any NtGdi* service none of the five uses.
+
+## The full win32k, first milestone: a window from lifted user32
+
+`build\ntwinmine.exe` (winmine, ntdll, kernel32, msvcrt, **user32, gdi32**
+lifted; pcrecomp w32kgdi.c + the new w32kuser.c): winmine registers its
+class, creates, moves, shows and paints its window, and runs its message loop,
+all through Windows 2000's own user32 and gdi32. `shots\ntwinmine_6.png`:
+170x256 like stage 1, LEDs, smiley and minefield drawn; no menu bar and the
+default window icon. Against the stage 1 render 18,331 of 43,520 pixels
+differ; most is the missing menu bar (the client area sits 20 px higher):
+aligned by that, 5,383 differ.
+
+What user32 needed, read off the lifted code:
+- **ValidateHwnd**: index `LOWORD(h)` < `psi->cHandleEntries` (+8), the
+  handle table entry (12 bytes: phead, pOwner, bType 1, bFlags, wUniq =
+  `HIWORD(h)`), phead within the thread's desktop (CLIENTINFO at TEB+0x6CC:
+  +0x18 pDeskInfo { base, limit }), WND = phead - client delta (+0x1C). Host
+  HWNDs are used with their own index and uniq; each gets a WND in a desktop
+  heap of ours, entered when the guest first hears from the window
+  (WM_GETMINMAXINFO, before CreateWindowEx returns).
+- **DefWindowProc**: user32 hands a message to win32k only if SHAREDINFO's
+  DefWindowMsgs bitmap (+0xE8) has it; with zeros it returned 0 for
+  WM_NCCREATE and creation failed. All messages go, and NtUserMessageCall
+  with fnid 0x29E is the host's DefWindowProc.
+- **GetSystemMetrics / GetSysColor** read SERVERINFO +0x59C and +0x6E8, and
+  only once the thread is a GUI thread (TEB+0x40, Win32ThreadInfo, set).
+- Services so far: RegisterClassExWOW, CreateWindowEx (LARGE_STRING names,
+  buffer at +8), MessageCall, ShowWindow, MoveWindow, SetMenu,
+  InvalidateRect, Get/Peek/Translate/DispatchMessage, Begin/EndPaint (DCs
+  translated by w32kgdi), GetDC, CreateAcceleratorTable, GetThreadState.
+
+Not yet:
+- messages reach the window procedure from the host directly (it is
+  registered with the host as the class's procedure), not through
+  KiUserCallbackDispatcher and user32's __fn* routines;
+- menus (LoadMenu builds them through NtUser* calls not answered: SetMenu got
+  0), cursors and icons (NtUserFindExistingCursorIcon,
+  NtGdiCreateDIBitmapInternal), NtUserCallNoParam/OneParam indices;
+- the WND carries only its handle and self pointer: user32's client-side
+  reads of window fields (GetWindowLong, IsWindowVisible, GetClientRect,
+  DispatchMessage's direct call of the window procedure: one unresolved call
+  through a zero field is logged) need them filled from the host window.

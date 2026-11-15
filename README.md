@@ -14,7 +14,7 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 |---|---|---|
 | 1 | Stock accessories lifted on native32 against the host's DLLs | winmine, sol, freecell, notepad and calc run |
 | 2 | Win2000's own ntdll + kernel32 + msvcrt lifted and started by ntdll's own LdrInitializeThunk; `int 2Eh` and csrss's LPC port are the only boundary; cmd.exe on top | cmd.exe runs on Pro SP4, Server SP4 and build 2163: ver, echo, cd, dir, if, for, set, exit N |
-| 3 | user32/gdi32 lifted, win32k calls shimmed; winmine on them | GDI half done: winmine, sol, freecell, calc, notepad on their own lifted **gdi32** (host user32), each pixel-identical to the host-gdi32 render (`tools/gdicmp.py`); full: user32 lifted runs to RegisterClassExW, wall: win32k's shared state (docs/findings.md) |
+| 3 | user32/gdi32 lifted, win32k calls shimmed; winmine on them | GDI half done: all five accessories on lifted **gdi32**, pixel-identical (`tools/gdicmp.py`). Full win32k started: winmine creates, shows and paints its window on lifted **user32 + gdi32** (no menu bar yet) |
 
 ## Building
 
