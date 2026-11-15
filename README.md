@@ -52,9 +52,8 @@ SORTKEY.NL_ SORTTBLS.NL_`) into `work/sys`, then rebase the system DLLs out
 of the host's way and lift all four:
 
 ```
-py -3 ..\pcrecomp-w2k	ools\peebase.py work\sys workebased cmd.exe ntdll.dll=0x20000000 kernel32.dll=0x20100000 msvcrt.dll=0x20200000
-py -3 tools\lift.py cmd workebased\cmd.exe workebased
-tdll.dll workebased\kernel32.dll workebased\msvcrt.dll
+py -3 ..\pcrecomp-w2k\tools\pe\rebase.py work\sys work\rebased cmd.exe ntdll.dll=0x20000000 kernel32.dll=0x20100000 msvcrt.dll=0x20200000
+py -3 tools\lift.py cmd work\rebased\cmd.exe work\rebased\ntdll.dll work\rebased\kernel32.dll work\rebased\msvcrt.dll
 build.cmd --target cmd
 set PCRECOMP_MUTE=1
 build\cmd.exe --mute -- /c ver
