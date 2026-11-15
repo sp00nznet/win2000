@@ -17,6 +17,8 @@ Image.MAX_IMAGE_PIXELS = None
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNS = [('int', [('start', 4, []), ('click', 5.4, ['--click', '30,80@5']), ('intermediate', 8, ['--command', '522@7']),
                   ('custom', 10, ['--command', '524@9'])]),
+        ('dlg', [('custom 20x30', 8, ['--command', '524@3', '--type', '0x8D=20@4', '--type', '0x8E=30@5',
+                                     '--dlgcommand', '1@6'])]),
         ('menu', [('menu open', 5, ['--post', '0x112,0xF100,0x67@3'])]),
         ('menu2', [('menu, Interm.', 7, ['--command', '522@3', '--post', '0x112,0xF100,0x67@5'])])]
 env = dict(os.environ, PCRECOMP_MUTE='1', MSYS_NO_PATHCONV='1', W2K_FIXED_TICK='12345')

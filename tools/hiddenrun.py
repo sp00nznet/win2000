@@ -110,6 +110,9 @@ def main():
     ap.add_argument('--command', action='append', default=[], help='ID@T: WM_COMMAND ID posted to the main window')
     ap.add_argument('--post', action='append', default=[], help='MSG,WPARAM,LPARAM@T: any message posted to the '
                     'main window (0x112,0xF100,0x67@T: WM_SYSCOMMAND SC_KEYMENU, the menu of the letter g)')
+    ap.add_argument('--type', action='append', default=[], help='ID=TEXT@T: typed into control ID of the top window '
+                    '(a dialog): EM_SETSEL all, then a posted WM_CHAR per character')
+    ap.add_argument('--dlgcommand', action='append', default=[], help='ID@T: WM_COMMAND ID posted to the top window')
     ap.add_argument('cmd', nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = a.cmd[1:] if a.cmd[:1] == ['--'] else a.cmd
@@ -125,7 +128,9 @@ def main():
     ended = False
     posts = sorted([(float(c.split('@')[1]), 'click', c.split('@')[0]) for c in a.click] +
                    [(float(c.split('@')[1]), 'cmd', c.split('@')[0]) for c in a.command] +
-                   [(float(c.split('@')[1]), 'post', c.split('@')[0]) for c in a.post])
+                   [(float(c.split('@')[1]), 'post', c.split('@')[0]) for c in a.post] +
+                   [(float(c.split('@')[1]), 'type', c.split('@')[0]) for c in a.type] +
+                   [(float(c.split('@')[1]), 'dlgcmd', c.split('@')[0]) for c in a.dlgcommand])
     while time.time() - t0 < a.secs and p.poll() is None:
         while posts and time.time() - t0 >= posts[0][0]:
             _, kind, what = posts.pop(0)
@@ -136,6 +141,14 @@ def main():
                 lp = (y << 16) | (x & 0xFFFF)
                 u32.PostMessageW(main_w, 0x0201, 1, lp)   # WM_LBUTTONDOWN, MK_LBUTTON
                 u32.PostMessageW(main_w, 0x0202, 0, lp)   # WM_LBUTTONUP
+            elif ws and kind == 'type':
+                cid, text = what.split('=', 1)
+                u32.GetDlgItem.restype = W.HWND
+                e = u32.GetDlgItem(ws[0], int(cid, 0))
+                u32.PostMessageW(e, 0x00B1, 0, -1)                     # EM_SETSEL all
+                for ch in text: u32.PostMessageW(e, 0x0102, ord(ch), 1)  # WM_CHAR
+            elif ws and kind == 'dlgcmd':
+                u32.PostMessageW(ws[0], 0x0111, int(what, 0), 0)
             elif main_w and kind == 'post':
                 m, wp, lp = (int(v, 0) for v in what.split(','))
                 u32.PostMessageW(main_w, m, wp, lp)

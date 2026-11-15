@@ -482,7 +482,21 @@ every call that changes a menu.
 | Game menu open | 0 (75 before the MENU items: no check marks) |
 | Game menu open after Intermediate | 0 (25 before submenus were synced: Beginner stayed checked) |
 
-Gaps: NtUserCallHwndParam 0x46 (called with 0x502 before every WM_CTLCOLOR
-the dialog handles) is still unanswered; NtUserCallHwndLock 0x4C/0x50 not
+### Driving the Custom dialog
+
+`hiddenrun.py --type ID=TEXT@T` (EM_SETSEL all, then a posted WM_CHAR per
+character to the control of the top window) and `--dlgcommand ID@T`. The
+`dlg` run opens Game > Custom, types 20 into Height (0x8D) and 30 into Width
+(0x8E), presses OK: the board becomes 30x20 (506x432) on both builds, 0 pixels
+differing. The keystrokes go through the guest's dialog loop
+(IsDialogMessage) and the host edit; OK through DefDlgProcW and winmine's
+dialog procedure (GetDlgItemInt).
+
+NtUserCallHwndParam 0x46 is SetWindowState: param = (byte offset from WND
++0x14) << 8 | bit mask; user32 tests the bit client-side and asks win32k only
+to set it (a dialog sets 0x502, WND+0x19 bit 1, at each WM_CTLCOLOR; 0x710
+elsewhere). Answered by setting the bit.
+
+Gaps: NtUserCallHwndParam 0x41 (once, in the dialog) is unanswered; NtUserCallHwndLock 0x4C/0x50 not
 shimmed; a guest SetWindowLong(GWL_WNDPROC) subclass is not mirrored; the
 WND's spmenu of a top-level window is not kept.

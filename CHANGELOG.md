@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- Custom dialog driven: typed size, OK, the board resizes, pixel-identical
+  (`interact.py` dlg run; `hiddenrun.py --type`, `--dlgcommand`).
 - winmine's Game > Custom dialog and its Game menu (open, at start and after
   Intermediate) pixel-identical on lifted user32 + gdi32; sent messages go
   through ntdll's KiUserCallbackDispatcher and user32's __fnDWORD (pcrecomp
