@@ -419,7 +419,7 @@ next piece: the WND's style, rectangles, class, fnid and extra bytes kept in
 step with the host window. Message delivery is still the host calling the
 guest's procedure directly, not KiUserCallbackDispatcher.
 
-### The Custom dialog (in progress)
+### The Custom dialog: pixel-identical
 
 Windows 2000's dialog manager now builds winmine's Custom dialog through the
 lifted user32: the #32770 window, its DIALOG structure, its controls, WM_SETFONT,
@@ -433,8 +433,56 @@ ShowWindow, its message loop. Read off user32's dialog code:
 - A template's control ordinal (0x80 Button .. 0x85 ComboBox) becomes an atom
   from SERVERINFO+0x1A0; dialog base units at +0x800/+0x804.
 
-Still wrong: the dialog is created at (-13108, -13108), 0xCCCC sign-extended,
-an uninitialised position on user32's side, so it is off screen and the step
-does not compare yet. Start, a cell click and Game > Intermediate stay
-pixel-identical. Message delivery is still the host calling the guest's
-procedures; the callback path and a menu-open state are not started.
+The steps, with the pixels differing after each (Game > Custom, 282x368):
+| Step | Differing |
+|---|---|
+| dialog built, placed at (-13108,-13108) | 37,327 (sizes differ) |
+| ulSharedDelta = 0 (USERCONNECT's SHAREDINFO +0x0C: never written, so the caller's stack, 0xCCCC...; user32 subtracts it from pDispInfo->pMonitorPrimary, so the monitor it clamped the dialog to was garbage) | sizes still differ |
+| SERVERINFO +0xE4A dmLogPixels (the dialog font's lfHeight = -MulDiv(8, it, 72); 0 gave a 25-pixel system font) and CLIENTINFO +0x08 dwExpWinVer 0x500 (>= 4.0 adds DS_3DLOOK and a normal-weight font; 0 gave bold) | sizes still differ |
+| WND kept from the host window before every service and callback: +0x1C ExStyle, +0x20 style, +0x30 spwndParent, +0x38 spwndOwner, +0x3C rcWindow, +0x4C rcClient (ClientToScreen is client-side: the dialog sits at the owner's rcClient). The host frame is thicker than Windows 2000's GetWindowBorders count (padded borders): CreateWindowEx of a top-level frame adds the difference | 804 |
+| dialogs run Windows 2000's own DefDlgProcW (the host's knows nothing of the guest's DIALOG and dialog procedure); WND +0x34 spwndChild, +0x2C spwndNext, +0x74 the control ID (GetDlgItem walks them); NtUserSetWindowFNID (+0x2A), SetFocus, QueryWindow (SetWindowText sends WM_SETTEXT only to a window of its own process: the guest TEB's ClientId), FillWindow (CTLCOLOR_* brush index), WM_CTLCOLOR* brushes back as guest handles | 658 |
+| SERVERINFO +0xE50 UserPreferencesMask: UI effects (0x80000000) on and keyboard cues (0x20) off makes the dialog send itself WM_CHANGEUISTATE UIS_INITIALIZE (no underlines, no focus rectangle), as the host's does | **0** |
+
+### Messages through KiUserCallbackDispatcher
+
+A message the host sends a guest window now reaches it the way win32k
+delivers it: KeUserModeCallback(2, FNDWORDMSG) through the guest ntdll's
+KiUserCallbackDispatcher into user32's __fnDWORD (KernelCallbackTable[2],
+user32 sets PEB+0x2C), which calls xpfnProc(pwnd, msg, wParam, lParam,
+xParam) and returns with NtCallbackReturn (`int 2Bh`, a 0xC-byte result).
+FNDWORDMSG is { pwnd, msg, wParam, lParam, xParam = the window procedure,
+xpfnProc = DispatchClientMessage }. DispatchClientMessage(pwnd, msg, w, l,
+pfn) is in no export and named by no code: only PFNCLIENT (apfnClientA/W,
+user32's data, which csrss hands win32k) holds it, at +0x24 from
+pfnDialogWndProc (DefDlgProcA/W) in both tables; it takes the HWND from
+CLIENTINFO's CallbackWnd (TEB+0x6F4, pwnd at +0x6F8). Classes and dialogs
+get a host thunk as their procedure; the guest's stays in WND+0x5C, which
+DispatchMessage calls client-side for posted messages. Every message uses the
+generic DWORD layout for now (one address space, so pointers need no copy);
+win32k's per-message routines (__fnINLPCREATESTRUCT, __fnINSTRING, ...) and
+A/W conversion are not used. All comparisons stayed at 0.
+
+### Menus open (tools/interact.py)
+
+Game opened with a posted WM_SYSCOMMAND SC_KEYMENU 'g' (`hiddenrun.py
+--post MSG,WPARAM,LPARAM@T`). The check marks were missing: user32's
+CheckMenuItem looks the item up client-side (MNLookUpItem) and calls
+NtUserCheckMenuItem only when the state changes, so it never got there. The
+MENU now carries its items from the host menu: +0x10 pSelf, +0x20 cItems,
++0x34 rgItems, ITEM 0x4C bytes { +0 fType, +4 fState, +8 wID, +0xC
+spSubMenu }, synced (into submenus: a by-command lookup goes down) after
+every call that changes a menu.
+
+| Step | Pixels differing |
+|---|---|
+| start | 0 |
+| a cell click | 0 |
+| Game > Intermediate | 0 |
+| Game > Custom (dialog) | 0 |
+| Game menu open | 0 (75 before the MENU items: no check marks) |
+| Game menu open after Intermediate | 0 (25 before submenus were synced: Beginner stayed checked) |
+
+Gaps: NtUserCallHwndParam 0x46 (called with 0x502 before every WM_CTLCOLOR
+the dialog handles) is still unanswered; NtUserCallHwndLock 0x4C/0x50 not
+shimmed; a guest SetWindowLong(GWL_WNDPROC) subclass is not mirrored; the
+WND's spmenu of a top-level window is not kept.

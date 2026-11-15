@@ -14,7 +14,7 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 |---|---|---|
 | 1 | Stock accessories lifted on native32 against the host's DLLs | winmine, sol, freecell, notepad and calc run |
 | 2 | Win2000's own ntdll + kernel32 + msvcrt lifted and started by ntdll's own LdrInitializeThunk; `int 2Eh` and csrss's LPC port are the only boundary; cmd.exe on top | cmd.exe runs on Pro SP4, Server SP4 and build 2163: ver, echo, cd, dir, if, for, set, exit N |
-| 3 | user32/gdi32 lifted, win32k calls shimmed; winmine on them | winmine on its own lifted user32 + gdi32: pixel-identical at start, after a cell click and after Game > Intermediate (`tools/interact.py`); dialogs not yet. All five accessories pixel-identical on lifted gdi32 |
+| 3 | user32/gdi32 lifted, win32k calls shimmed; winmine on them | winmine on its own lifted user32 + gdi32: pixel-identical at start, after a cell click, after Game > Intermediate, in the Game > Custom dialog and with the Game menu open (`tools/interact.py`); sent messages arrive through ntdll's KiUserCallbackDispatcher. All five accessories pixel-identical on lifted gdi32 |
 
 ## Building
 

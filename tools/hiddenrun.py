@@ -108,6 +108,8 @@ def main():
     ap.add_argument('--click', action='append', default=[], help='X,Y@T: a left click posted to the main '
                     'window at client X,Y, T seconds in')
     ap.add_argument('--command', action='append', default=[], help='ID@T: WM_COMMAND ID posted to the main window')
+    ap.add_argument('--post', action='append', default=[], help='MSG,WPARAM,LPARAM@T: any message posted to the '
+                    'main window (0x112,0xF100,0x67@T: WM_SYSCOMMAND SC_KEYMENU, the menu of the letter g)')
     ap.add_argument('cmd', nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = a.cmd[1:] if a.cmd[:1] == ['--'] else a.cmd
@@ -122,7 +124,8 @@ def main():
     th = threading.Thread(target=shots, args=(a, p, desk, t0)); th.start()   # joined after the input loop
     ended = False
     posts = sorted([(float(c.split('@')[1]), 'click', c.split('@')[0]) for c in a.click] +
-                   [(float(c.split('@')[1]), 'cmd', c.split('@')[0]) for c in a.command])
+                   [(float(c.split('@')[1]), 'cmd', c.split('@')[0]) for c in a.command] +
+                   [(float(c.split('@')[1]), 'post', c.split('@')[0]) for c in a.post])
     while time.time() - t0 < a.secs and p.poll() is None:
         while posts and time.time() - t0 >= posts[0][0]:
             _, kind, what = posts.pop(0)
@@ -133,6 +136,9 @@ def main():
                 lp = (y << 16) | (x & 0xFFFF)
                 u32.PostMessageW(main_w, 0x0201, 1, lp)   # WM_LBUTTONDOWN, MK_LBUTTON
                 u32.PostMessageW(main_w, 0x0202, 0, lp)   # WM_LBUTTONUP
+            elif main_w and kind == 'post':
+                m, wp, lp = (int(v, 0) for v in what.split(','))
+                u32.PostMessageW(main_w, m, wp, lp)
             elif main_w:
                 u32.PostMessageW(main_w, 0x0111, int(what, 0), 0)   # WM_COMMAND
             print(f'{time.time() - t0:.1f}s: {kind} {what}')
@@ -159,6 +165,8 @@ def shots(a, p, desk, t0):
         hs = [a.preview_hwnd] if a.preview else windows_of(p.pid, desk)
         shots = [grab(h) for h in hs]
         shots = [s for s in shots if s[0]]
+        if os.environ.get('HIDDENRUN_RECTS'):
+            for _, r in shots: print(f'  window {r.left},{r.top} {r.right - r.left}x{r.bottom - r.top}')
         if not shots:
             print(f'{t}s: no window'); continue
         x0 = min(r.left for _, r in shots); y0 = min(r.top for _, r in shots)

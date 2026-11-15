@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- winmine's Game > Custom dialog and its Game menu (open, at start and after
+  Intermediate) pixel-identical on lifted user32 + gdi32; sent messages go
+  through ntdll's KiUserCallbackDispatcher and user32's __fnDWORD (pcrecomp
+  w32kuser.c, csr32.c). `interact.py` menu runs; `hiddenrun.py --post`, and
+  `HIDDENRUN_RECTS=1` prints each captured window's rectangle.
 - `tools/interact.py`: winmine driven by posted input on both builds, compared
   per step; `hiddenrun.py --click/--command`; `W2K_FIXED_TICK`.
 - winmine on its own lifted user32 + gdi32: pixel-identical to stage 1
