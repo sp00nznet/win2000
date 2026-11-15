@@ -212,3 +212,58 @@ NtGdiInit (true, with a zeroed GDI shared section at `Peb+0x94`), and in
 csr32 the user server connect (zeroed SERVERINFO, handle table and display
 info). Logged unanswered on the way: NtGdiQueryFontAssocInfo,
 NtUserGetThreadState, NtGdiGetStockObject, NtUserRegisterClassExWOW.
+
+## Interim: winmine on its own lifted gdi32, the host's user32
+
+Host `build\ntwmgdi.exe` (from `work\rebased-gdi`): winmine.exe, ntdll,
+kernel32, msvcrt and **gdi32** lifted (24,653 entries); USER32, ADVAPI32,
+SHELL32, WINMM are host proxies.
+
+**Result:** winmine's window, drawn by Windows 2000's own gdi32, is
+pixel-identical to the stage 1 render, which used the host's gdi32: 0 of
+170x256 pixels differ (`shots\ntwmgdi_6.png` against `shots\winmine_5.png`,
+PrintWindow on a private desktop). In one run the lifted gdi32 made 162
+NtGdiBitBlt, 88 NtGdiLineTo, 33 NtGdiSetDIBitsToDeviceInternal, 16 each of
+NtGdiCreateCompatibleDC / CompatibleBitmap / SelectBitmap, and a few stock
+object and pen calls; none was unanswered.
+
+**The GDI layer** (pcrecomp `runtime/native32/w32kgdi.c`, built to be shared
+with a full win32k later):
+- a Windows 2000-layout shared handle table at `Peb->GdiSharedHandleTable`
+  (0x4000 entries of 16 bytes; gdi32 checks the index, the high word, the
+  type byte and the owning process) and a DC_ATTR per DC;
+- **handle translation**: host GDI indices run to 0xFFFF and Windows 2000's
+  gdi32 rejects anything from 0x4000 up (winmine's window DC was 0x370150C4),
+  so the guest gets its own handles (host high word, our index) and every
+  service, and every hooked host user32 function, translates;
+- **DC_ATTR sync**: gdi32 keeps the selected brush (+0x08) and pen (+0x0C),
+  the ROP2 (+0x38) and the current position (+0x3C) in user mode and selects
+  pens and brushes with no system call; before each draw they go onto the
+  host DC. Without the pen, winmine's grey 3D lines came out black (1,442
+  pixels);
+- host user32's DC functions (BeginPaint/EndPaint, GetDC, GetWindowDC,
+  GetDCEx, ReleaseDC) and RegisterClass* (the background brush; with a guest
+  handle there, RegisterClassW failed and winmine quietly exited) are hooked
+  in user32's proxy image (`native32_nt_proxy_hook`);
+- gdi32 has no entry point on Windows 2000 (user32's DllMain calls its
+  GdiDllInitialize); with the host's user32 the host calls it
+  (`native32_gdi_start`).
+
+**Exceptions, for real now.** winmine calls OutputDebugStringA, whose
+`RaiseException` inside `__try/__except` is the first guest exception that
+mattered: x86 RtlRaiseException asks the kernel first, so the first-chance
+NtRaiseException now enters the guest's own KiUserExceptionDispatcher, the
+guest's RtlDispatchException finds kernel32's frame, and native32's landing
+pads take the jump into its `__except`. The guest ntdll's RtlUnwind ends in
+NtContinue to its caller, which a lift cannot do; native32's own RtlUnwind
+(seh32) is put in its place by address (`native32_replace`), since the
+guest's loader, not native32, snaps the imports now.
+
+**Gaps left in this layer:**
+- only the services winmine uses are answered (see the table in w32kgdi.c);
+  any other NtGdi* is logged once and returns 0;
+- DC_ATTR fields beyond brush, pen, ROP2 and position (colours, text
+  alignment, brush origin, mapping mode) are not synced;
+- gdi32's TEB batch (`TEB+0x1D4`, used for font selection and some fills,
+  flushed by NtGdiFlushUserBatch) is not processed;
+- the host->guest handle lookup is a linear scan.

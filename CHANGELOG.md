@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- `build/ntwmgdi.exe`: winmine on Windows 2000's own lifted gdi32 (host
+  user32), pixel-identical to the host-gdi32 render; pcrecomp w32kgdi.c.
 - Stage 3 probe: `build/ntwinmine.exe`, winmine with its own lifted user32
   and gdi32: both initialize, WinMain reaches RegisterClassExW.
   `tools/w32k_names.py` names win32k services from j00ru's public tables.

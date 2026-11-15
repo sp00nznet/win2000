@@ -141,7 +141,11 @@ static int host_main(int argc, char** argv) {
         if ((w[n] = native32_module("user32.dll")) != 0) n++;
         if ((w[n] = native32_module("gdi32.dll")) != 0) n++;
         if (n) native32_nt_win32k(w, (int)n, "work/names/win32k_2000sp4.txt");
+#ifdef W2K_GDI_LAYER
+        if (n) native32_gdi_install();      /* GDI on the host's GDI (pcrecomp w32kgdi.c) */
+#else
         if (n) native32_nt_win32k_override("NtGdiInit", w32k_gdi_init);
+#endif
     }
     {
         /* csrss's \NLS sections, from Windows 2000's own NLS files */
@@ -179,6 +183,9 @@ static int host_main(int argc, char** argv) {
         dllpath[2 * MAX_PATH - 1] = 0;
         if (!native32_nt_boot(NTDLL, EXE_BASE, image, cmdline, dllpath, nls, W2K_CSD)) return 1;
     }
+#ifdef W2K_GDI_LAYER
+    if (!native32_gdi_start(native32_module("gdi32.dll"))) fprintf(stderr, "gdi32 has no GdiDllInitialize\n");
+#endif
     IMAGE_NT_HEADERS32* nt = (IMAGE_NT_HEADERS32*)(uintptr_t)(EXE_BASE + MEM32(EXE_BASE + 0x3C));
     uint32_t entry = EXE_BASE + nt->OptionalHeader.AddressOfEntryPoint;
     fprintf(stderr, "%s: %u lifted functions, entering 0x%08X\n", W2K_EXE, recomp_dispatch_count, entry);

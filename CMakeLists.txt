@@ -60,3 +60,11 @@ if(TARGET ntwinmine)
   target_compile_definitions(ntwinmine PRIVATE RECOMP_TRACE=1 W2K_EXE="winmine.exe" W2K_EXE_W=L"winmine.exe"
     EXE_BASE=0x01000000u W2K_SYS="work/rebased-gui" W2K_NLS="work/sys" W2K_CSD=0x0400 "W2K_MORE_MODS=,{\"user32.dll\",0x20300000u},{\"gdi32.dll\",0x20400000u}")
 endif()
+
+# Interim: winmine on its own lifted gdi32, the host's user32 (pcrecomp w32kgdi.c)
+w2k_host(ntwmgdi src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c ${N32}/w32kgdi.c)
+if(TARGET ntwmgdi)
+  target_compile_definitions(ntwmgdi PRIVATE RECOMP_TRACE=1 W2K_EXE="winmine.exe" W2K_EXE_W=L"winmine.exe"
+    EXE_BASE=0x01000000u W2K_SYS="work/rebased-gdi" W2K_NLS="work/sys" W2K_CSD=0x0400 W2K_GDI_LAYER=1
+    "W2K_MORE_MODS=,{\"gdi32.dll\",0x20400000u}")
+endif()
