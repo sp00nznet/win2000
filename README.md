@@ -13,7 +13,7 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 | Stage | What | State |
 |---|---|---|
 | 1 | Stock accessories lifted on native32 against the host's DLLs | winmine, sol, freecell, notepad and calc run |
-| 2 | Win2000's own ntdll + kernel32 lifted, `int 2Eh` mapped to the host by a syscall shim; cmd.exe on top | surveyed (docs/findings.md), not started |
+| 2 | Win2000's own ntdll + kernel32 + msvcrt lifted, `int 2Eh` mapped to the host by a syscall shim; cmd.exe on top | cmd.exe runs: banner, ver, echo, dir, set, exit N. `cd` does not change directory yet |
 | 3 | user32/gdi32 lifted, win32k calls shimmed; winmine on them | not started |
 
 ## Building
@@ -43,6 +43,28 @@ with `capstone` and `pefile`, 7-Zip, and a pcrecomp checkout at
    set PCRECOMP_MUTE=1
    py -3 tools\hiddenrun.py --secs 7 --shot 5 --out shots\winmine -- build\winmine.exe --mute
    ```
+
+### Stage 2: cmd.exe on its own kernel32 and ntdll
+
+Also expand `CMD.EX_`, `KERNEL32.DL_`, `NTDLL.DLL`, `MSVCRT.DLL` and the NLS
+files (`C_1252.NL_ C_437.NL_ L_INTL.NL_ UNICODE.NL_ LOCALE.NL_ CTYPE.NL_
+SORTKEY.NL_ SORTTBLS.NL_`) into `work/sys`, then rebase the system DLLs out
+of the host's way and lift all four:
+
+```
+py -3 ..\pcrecomp-w2k	ools\peebase.py work\sys workebased cmd.exe ntdll.dll=0x20000000 kernel32.dll=0x20100000 msvcrt.dll=0x20200000
+py -3 tools\lift.py cmd workebased\cmd.exe workebased
+tdll.dll workebased\kernel32.dll workebased\msvcrt.dll
+build.cmd --target cmd
+set PCRECOMP_MUTE=1
+build\cmd.exe --mute -- /c ver
+```
+
+(In Git Bash set `MSYS_NO_PATHCONV=1`, or `/c` arrives as `C:/`.)
+`NATIVE32_SYSCALLS=1` traces every system call and csrss request;
+`--calltrace FILE` every lifted function entry. `tools/addr2name.py` names
+guest addresses by the nearest export; `tools/faultline.sh` shows the lifted C
+at a host fault address.
 
 `build\<app>.exe --headless --mute` runs it on its own hidden desktop
 without the harness. Arguments after `--` become the guest's command line.

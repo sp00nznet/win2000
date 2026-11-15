@@ -22,14 +22,7 @@ static native32_module_t g_mods[] = { { APP_EXE, APP_BASE } APP_DLLS };
 #define NMODS ((int)(sizeof g_mods / sizeof g_mods[0]))
 static DWORD g_watchdog_s;
 
-/* The guest's command line is its own name plus what follows "--", not the
- * host's flags (notepad opened "--mute --watchdog 6.txt"). msvcrt's
- * __getmainargs still parses the host's: ponytail, shim it when a guest
- * reads argv. */
-static char g_cmd_a[1024];
-static WCHAR g_cmd_w[1024];
-static LPSTR WINAPI cmdline_a(void) { return g_cmd_a; }
-static LPWSTR WINAPI cmdline_w(void) { return g_cmd_w; }
+static char g_cmd_a[1024];   /* the guest's command line: its name + what follows "--" */
 
 void recomp_not_lifted(uint32_t va) {
     fprintf(stderr, "\n[not-lifted] sub_%08X  (called from 0x%08X)\n", va, g_cur_func);
@@ -97,9 +90,7 @@ static int host_main(int argc, char** argv) {
         char tail[1024];
         strcpy(tail, g_cmd_a);
         _snprintf(g_cmd_a, sizeof g_cmd_a - 1, "%s%s", APP_EXE, tail);
-        MultiByteToWideChar(CP_ACP, 0, g_cmd_a, -1, g_cmd_w, 1024);
-        native32_redirect("GetCommandLineA", (void*)cmdline_a);
-        native32_redirect("GetCommandLineW", (void*)cmdline_w);
+        native32_set_command_line(g_cmd_a);
     }
     native32_init();
     AddVectoredExceptionHandler(0, crash);

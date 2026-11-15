@@ -39,3 +39,10 @@ foreach(app sol freecell)   # cards.dll is not on a modern Windows: lifted too
     target_compile_definitions(${app} PRIVATE "APP_DLLS=,{\"cards.dll\",0x74260000u}")
   endif()
 endforeach()
+
+# Stage 2: cmd.exe on lifted msvcrt + kernel32 + ntdll (rebased: tools in README)
+w2k_host(cmd src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c)
+option(W2K_TRACE "ring buffer of lifted function entries in the cmd host" ON)
+if(TARGET cmd AND W2K_TRACE)
+  target_compile_definitions(cmd PRIVATE RECOMP_TRACE=1)
+endif()
