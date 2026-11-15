@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- winmine on its own lifted user32 + gdi32: pixel-identical to stage 1
+  (menus, icons, DC messages in pcrecomp w32kuser.c).
 - Full win32k, first milestone: `build/ntwinmine.exe` creates, shows and
   paints winmine's window through Windows 2000's own user32 and gdi32
   (pcrecomp w32kuser.c).

@@ -356,3 +356,28 @@ Not yet:
   reads of window fields (GetWindowLong, IsWindowVisible, GetClientRect,
   DispatchMessage's direct call of the window procedure: one unresolved call
   through a zero field is logged) need them filled from the host window.
+
+### Pixel-identical: winmine on its own user32 + gdi32
+
+`build\ntwinmine.exe` now draws winmine's window with 0 of 43,520 pixels
+differing from the stage 1 render (`shots\ntwinmine_6.png` against
+`shots\winmine_5.png`; repeated twice more, 0 each time). Every user32 and
+gdi32 call winmine makes is Windows 2000's own lifted code; win32k is
+pcrecomp's w32kuser.c + w32kgdi.c over host windows and host GDI.
+
+The steps, with the differing pixels after each:
+| Step | Differing |
+|---|---|
+| window created, no menu bar | 18,331 |
+| menus: CreateMenu / CreatePopupMenu (NtUserCallNoParam 0/1), NtUserThunkedMenuItemInfo, menus as USER objects (bType 2) | 5,116 |
+| GetMenuItemRect, icons and cursors (NtUserFindExistingCursorIcon answered with the host's load) | 4,999 |
+| NtUserMessageCall hands the host its own DC back (WM_ERASEBKGND had erased nothing: white background, washed-out frame) | 94 |
+| the icon loaded shared, at the size asked ({ ?, type, cx, cy, bpp }): the title bar's 16x16 is the resource's own | **0** |
+
+Honest status of what was planned for this step but not needed for the
+pixels: the WND still carries only its handle and self pointer (no
+client-side read of window fields failed visibly; one unresolved call
+through a zero field is still logged during the message loop), and messages
+still reach the window procedure from the host directly, not through
+KiUserCallbackDispatcher. Interaction (clicks, the menus opening, dialogs)
+is untested.
