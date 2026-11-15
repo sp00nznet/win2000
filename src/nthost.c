@@ -109,6 +109,13 @@ static void fixed_time(void) {
     g_esp += 4;
 }
 
+/* W2K_FIXED_TICK=n: the lifted kernel32's GetTickCount answers n (it reads
+ * KUSER_SHARED_DATA, no system call to catch) */
+static void fixed_tick(void) {
+    g_eax = strtoul(getenv("W2K_FIXED_TICK"), NULL, 0);
+    g_esp += 4;
+}
+
 static int host_main(int argc, char** argv) {
     const char* sys = W2K_SYS, *nlsdir = W2K_NLS;
     char dir[MAX_PATH], nls[MAX_PATH];
@@ -204,6 +211,8 @@ static int host_main(int argc, char** argv) {
 #ifdef W2K_GDI_LAYER
     if (!native32_gdi_start(native32_module("gdi32.dll"))) fprintf(stderr, "gdi32 has no GdiDllInitialize\n");
 #endif
+    if (getenv("W2K_FIXED_TICK"))
+        native32_replace(native32_export(native32_module("kernel32.dll"), "GetTickCount"), fixed_tick);
     if (getenv("W2K_FIXED_TIME") && native32_module("msvcrt.dll"))
         native32_replace(native32_export(native32_module("msvcrt.dll"), "time"), fixed_time);
     if (getenv("W2K_IAT_DUMP")) {          /* imports the guest's loader left unsnapped */

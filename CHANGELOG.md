@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- `tools/interact.py`: winmine driven by posted input on both builds, compared
+  per step; `hiddenrun.py --click/--command`; `W2K_FIXED_TICK`.
 - winmine on its own lifted user32 + gdi32: pixel-identical to stage 1
   (menus, icons, DC messages in pcrecomp w32kuser.c).
 - Full win32k, first milestone: `build/ntwinmine.exe` creates, shows and

@@ -381,3 +381,40 @@ through a zero field is still logged during the message loop), and messages
 still reach the window procedure from the host directly, not through
 KiUserCallbackDispatcher. Interaction (clicks, the menus opening, dialogs)
 is untested.
+
+### Interaction (tools/interact.py)
+
+`tools/interact.py` drives the stage 1 build (host user32/gdi32) and
+`build\ntwinmine.exe` (Windows 2000's own) the same way on a private desktop,
+with posted input (`hiddenrun.py --click X,Y@T`, `--command ID@T`) and the
+same mines in both (`W2K_FIXED_TICK`: winmine seeds with GetTickCount, which
+the lifted kernel32 reads from shared memory, so it is replaced by address),
+and compares a screenshot after each step:
+
+| Step | Pixels differing |
+|---|---|
+| start | 0 |
+| a click on a cell (shot within the first second: the game clock starts) | 0 |
+| Game > Intermediate (the board resizes to 282x368) | 0 |
+| Game > Custom (a dialog) | 37,327: no dialog yet |
+
+What it took:
+- **WND+0x5C, the window procedure.** Windows 2000's DispatchMessage calls it
+  client-side (WND+0x16 bit 4 would make it server-side); left 0, every
+  posted message (clicks, menu commands) went to a null call and was lost.
+  Sent messages had worked, because the host calls the guest's procedure.
+- **Timers** (NtUserSetTimer/KillTimer), the cursor, EnableWindow
+  (NtUserCallHwndParamLock 0x53).
+- For the dialog: DISPLAYINFO (SHAREDINFO's pDispInfo: monitor count, the
+  primary and first MONITOR with its rectangles), class atoms in
+  CreateWindowEx (#32770 is 0x8002 on both).
+
+**Where it stops.** The Custom dialog's window is created (class #32770,
+owner winmine), then user32's dialog manager deletes the dialog font,
+re-enables the owner and returns, with no controls and nothing shown.
+Windows 2000's dialog manager keeps its state with the window (the WND's
+fnid and its extra bytes, DLGWINDOWEXTRA) and checks them client-side; the
+WND here still has only the handle, self pointer and procedure. That is the
+next piece: the WND's style, rectangles, class, fnid and extra bytes kept in
+step with the host window. Message delivery is still the host calling the
+guest's procedure directly, not KiUserCallbackDispatcher.

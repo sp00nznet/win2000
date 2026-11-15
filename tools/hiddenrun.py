@@ -105,6 +105,9 @@ def main():
                     'and pass its handle where the command says {hwnd} (a screen saver /p)')
     ap.add_argument('--end-at', type=float, help='at this second, close the preview window (--preview) '
                     'or press a key in the window of the program, as a person ending a screen saver would')
+    ap.add_argument('--click', action='append', default=[], help='X,Y@T: a left click posted to the main '
+                    'window at client X,Y, T seconds in')
+    ap.add_argument('--command', action='append', default=[], help='ID@T: WM_COMMAND ID posted to the main window')
     ap.add_argument('cmd', nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = a.cmd[1:] if a.cmd[:1] == ['--'] else a.cmd
@@ -116,9 +119,23 @@ def main():
     p = launch(cmd, name, a.out + '.log')
     t0 = time.time()
     import threading
-    th = threading.Thread(target=shots, args=(a, p, desk, t0)); th.start(); th.join()
+    th = threading.Thread(target=shots, args=(a, p, desk, t0)); th.start()   # joined after the input loop
     ended = False
+    posts = sorted([(float(c.split('@')[1]), 'click', c.split('@')[0]) for c in a.click] +
+                   [(float(c.split('@')[1]), 'cmd', c.split('@')[0]) for c in a.command])
     while time.time() - t0 < a.secs and p.poll() is None:
+        while posts and time.time() - t0 >= posts[0][0]:
+            _, kind, what = posts.pop(0)
+            ws = windows_of(p.pid, desk)
+            main_w = ws[-1] if ws else None          # top-level, bottom of the z-order: the main window
+            if main_w and kind == 'click':
+                x, y = map(int, what.split(','))
+                lp = (y << 16) | (x & 0xFFFF)
+                u32.PostMessageW(main_w, 0x0201, 1, lp)   # WM_LBUTTONDOWN, MK_LBUTTON
+                u32.PostMessageW(main_w, 0x0202, 0, lp)   # WM_LBUTTONUP
+            elif main_w:
+                u32.PostMessageW(main_w, 0x0111, int(what, 0), 0)   # WM_COMMAND
+            print(f'{time.time() - t0:.1f}s: {kind} {what}')
         if a.end_at is not None and not ended and time.time() - t0 >= a.end_at:
             ended = True
             for h in ([a.preview_hwnd] if a.preview else windows_of(p.pid, desk)):
@@ -126,6 +143,7 @@ def main():
                 else: u32.PostMessageW(h, 0x0100, 0x20, 0x00390001)             # WM_KEYDOWN space
             print(f'{a.end_at}s: ended')
         time.sleep(0.2)
+    th.join()
     print('exit', p.poll(), f'after {time.time() - t0:.1f}s')
     subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
     u32.CloseDesktop(desk)

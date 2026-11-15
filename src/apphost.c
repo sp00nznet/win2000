@@ -67,6 +67,9 @@ static unsigned __cdecl fixed_time(unsigned* t) {
     return v;
 }
 
+/* W2K_FIXED_TICK=n: GetTickCount answers n (winmine seeds its mines with it) */
+static DWORD WINAPI fixed_tick(void) { return (DWORD)strtoul(getenv("W2K_FIXED_TICK"), NULL, 0); }
+
 static int host_main(int argc, char** argv) {
     const char* sys = "work\\sys";
     char dir[MAX_PATH];
@@ -100,7 +103,8 @@ static int host_main(int argc, char** argv) {
         _snprintf(g_cmd_a, sizeof g_cmd_a - 1, "%s%s", APP_EXE, tail);
         native32_set_command_line(g_cmd_a);
     }
-    if (getenv("W2K_FIXED_TIME")) native32_redirect("time", (void*)fixed_time);   /* a repeatable deal (tools/gdicmp.py) */
+    if (getenv("W2K_FIXED_TIME")) native32_redirect("time", (void*)fixed_time);
+    if (getenv("W2K_FIXED_TICK")) native32_redirect("GetTickCount", (void*)fixed_tick);   /* a repeatable deal (tools/gdicmp.py) */
     native32_init();
     AddVectoredExceptionHandler(0, crash);
     if (!native32_modules_map(dir, dir, g_mods, NMODS)) return 1;
