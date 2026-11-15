@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- Stage 3 probe: `build/ntwinmine.exe`, winmine with its own lifted user32
+  and gdi32: both initialize, WinMain reaches RegisterClassExW.
+  `tools/w32k_names.py` names win32k services from j00ru's public tables.
 - Process start by Windows 2000's own ntdll (`LdrInitializeThunk`): no
   build-specific addresses in the host; csrss answered at its LPC port.
 - Windows 2000 Server SP4 and build 2163 (pro.zip's ISO) cmd.exe brought up

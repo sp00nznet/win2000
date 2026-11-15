@@ -149,3 +149,66 @@ offsets a caller reads, the global a crash dereferenced.
   (user32/gdi32 on win32k) needs the callbacks.
 - The proxy images give host functions to a Windows 2000 caller as-is; a
   host function whose structures changed since 2000 would need a shim.
+
+## Stage 3: winmine on its own user32 + gdi32 (the wall)
+
+Host `build\ntwinmine.exe`: winmine.exe, ntdll, kernel32, msvcrt, **user32,
+gdi32** all lifted (34,038 dispatch entries), from `work\rebased-gui`
+(a directory of its own: cmd's loader must not find a user32 it has no lift
+of; the guard refuses it). ADVAPI32, SHELL32, WINMM are host proxies.
+
+**What runs.** Windows 2000's loader maps and snaps all six modules; gdi32's
+and user32's DllMains complete (GdiDllInitialize, UserClientDllInitialize,
+including user32's connect to csrss's user server); winmine's own WinMain
+starts and calls RegisterClassExW, which reaches win32k as
+`NtUserRegisterClassExWOW`. Unanswered, it returns 0 and winmine exits. No
+window yet, so no screenshot.
+
+**Naming win32k.** The service numbers and argument counts are the guest's
+own: user32 and gdi32 contain 605 win32k stubs
+(`mov eax, 0x1NNN / lea edx, [esp+4] / int 2Eh / ret 4n`), found by shape
+since few are exported. Names for Windows 2000 SP4 (640 services, 0x1000 to
+0x127F) come from j00ru's public syscall tables
+(`tools/w32k_names.py`; the JSON is fetched into `work/names/`). pcrecomp's
+syscall32 dispatches services from 0x1000 to a by-name table and logs every
+unanswered one once.
+
+**Wired in pcrecomp for it:**
+- user-mode callbacks: `native32_nt_callback(api, in, len, ...)` runs the
+  guest's KiUserCallbackDispatcher; NtCallbackReturn and `int 2Bh` record the
+  result, and the dispatcher's trailing int3 (lifted as a return) comes back,
+  with no longjmp. Not exercised yet: nothing calls back before the wall.
+- exceptions: RtlRaiseException is the guest's own and dispatches over its
+  own frames; NtRaiseException (second chance) ends the process with a
+  report; NtContinue returns to the raiser.
+
+**The wall: win32k's state.** Windows 2000's user32 is a thin client over
+data win32k owns and maps into every process, read directly, not through
+calls:
+- the USERCONNECT reply (260 bytes) carries SHAREDINFO: `gpsi` (SERVERINFO,
+  140 distinct fields read by user32: system metrics, colours, brushes,
+  the function tables per window class), `aheList` (the handle table:
+  every HWND/HMENU is validated against it), the display info, and the
+  per-control-class message tables;
+- every window, class and menu is a kernel structure (WND, CLS, MENU) in
+  the desktop heap, which user32 reads at a fixed delta (GetWindowLong,
+  IsWindowVisible, DefWindowProc and the message dispatch all read the WND);
+- the thread's CLIENTINFO in the TEB, and GDI's DC attributes in the shared
+  handle table (`Peb->GdiSharedHandleTable`, plus shared data after it).
+
+So "shimming win32k calls" cannot be a mapping of NtUser* calls to the
+host's: the host's win32k keeps that state in Windows 11's layout, which a
+Windows 2000 user32 would misread. It needs a win32k of our own: the handle
+table, WND/CLS/MENU in Windows 2000 layout kept in step with real host
+windows, SERVERINFO, CLIENTINFO and GDI's DC_ATTR, with the NtUser*/NtGdi*
+services answered against them (host windows and host GDI underneath) and
+win32k's callbacks (window procedures, WM_CREATE during CreateWindow) through
+`native32_nt_callback`. The layouts have to be read off the lifted user32 and
+gdi32, as the csrss ones were. That is a project of its own (the size of a
+small Wine USER/GDI layer); this stage maps it but does not do it.
+
+What the probe answered, in the host (`src/nthost.c`, marked ponytail):
+NtGdiInit (true, with a zeroed GDI shared section at `Peb+0x94`), and in
+csr32 the user server connect (zeroed SERVERINFO, handle table and display
+info). Logged unanswered on the way: NtGdiQueryFontAssocInfo,
+NtUserGetThreadState, NtGdiGetStockObject, NtUserRegisterClassExWOW.

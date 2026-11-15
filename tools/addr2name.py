@@ -10,7 +10,7 @@ import pefile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 mods = []
-for f in glob.glob(os.path.join(ROOT, 'work', 'rebased', '*.dll')):
+for f in glob.glob(os.path.join(ROOT, 'work', os.environ.get('W2K_REBASED', 'rebased-gui'), '*.dll')):
     p = pefile.PE(f)
     b = p.OPTIONAL_HEADER.ImageBase
     ex = sorted((b + e.address, e.name.decode()) for e in p.DIRECTORY_ENTRY_EXPORT.symbols if e.name)

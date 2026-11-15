@@ -19,14 +19,20 @@ extern const char* g_cur_import;
 
 #define ARG(n) MEM32(g_esp + 4 + 4 * (n))
 #define NTDLL 0x20000000u
+#ifndef W2K_EXE                /* the program: cmd.exe unless the build says otherwise */
+#define W2K_EXE "cmd.exe"
+#define W2K_EXE_W L"cmd.exe"
 #define EXE_BASE 0x4AD00000u
+#define W2K_MORE_MODS
+#endif
 #ifndef W2K_SYS               /* where this build's rebased modules and NLS files are */
 #define W2K_SYS "work/rebased"
 #define W2K_NLS "work/sys"
 #define W2K_CSD 0x0400         /* Service Pack 4 */
 #endif
 static native32_module_t g_mods[] = {
-    { "cmd.exe", EXE_BASE }, { "ntdll.dll", NTDLL }, { "kernel32.dll", 0x20100000u }, { "msvcrt.dll", 0x20200000u },
+    { W2K_EXE, EXE_BASE }, { "ntdll.dll", NTDLL }, { "kernel32.dll", 0x20100000u }, { "msvcrt.dll", 0x20200000u }
+    W2K_MORE_MODS
 };
 #define NMODS ((int)(sizeof g_mods / sizeof g_mods[0]))
 static DWORD g_watchdog_s;
@@ -77,10 +83,20 @@ static uint32_t nt_terminate_process(uint32_t* a) {
     if (a[0] == 0xFFFFFFFFu || a[0] == 0) { recomp_trace_flush(); fflush(NULL); }
     return native32_nt_forward("NtTerminateProcess", a);
 }
+/* ---- stage 3 probe: win32k ----------------------------------------------
+ * ponytail: the first services a lifted gdi32/user32 needs, answered just
+ * enough to see the next one. Not an implementation of win32k. */
+static uint32_t w32k_gdi_init(uint32_t* a) {
+    (void)a;
+    /* GdiSharedHandleTable: 16384 Win2000 GDI_TABLE_ENTRYs (16 bytes) */
+    if (!MEM32(native32_guest_peb + 0x94))
+        MEM32(native32_guest_peb + 0x94) = (uint32_t)(uintptr_t)VirtualAlloc(NULL, 0x80000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);   /* + the shared data after it (gdi32 reads +0x40094) */
+    return 1;
+}
 static int host_main(int argc, char** argv) {
     const char* sys = W2K_SYS, *nlsdir = W2K_NLS;
     char dir[MAX_PATH], nls[MAX_PATH];
-    wchar_t cmdline[1024] = L"cmd.exe", image[MAX_PATH];
+    wchar_t cmdline[1024] = W2K_EXE_W, image[MAX_PATH];
     for (int i = 1; i < argc; i++)
         if (!strcmp(argv[i], "--mute") || !strcmp(argv[i], "--headless")) SetEnvironmentVariableA("PCRECOMP_MUTE", "1");
     for (int i = 1; i < argc; i++) {
@@ -108,7 +124,7 @@ static int host_main(int argc, char** argv) {
     GetFullPathNameA(nlsdir, MAX_PATH, nls, NULL);
     {
         char exe[MAX_PATH];
-        _snprintf(exe, sizeof exe - 1, "%s\\cmd.exe", dir);
+        _snprintf(exe, sizeof exe - 1, "%s\\%s", dir, W2K_EXE);
         exe[MAX_PATH - 1] = 0;
         native32_hold_image(exe, EXE_BASE);
         MultiByteToWideChar(CP_ACP, 0, exe, -1, image, MAX_PATH);
@@ -119,6 +135,14 @@ static int host_main(int argc, char** argv) {
     if (!native32_modules_map(dir, dir, g_mods, NMODS)) return 1;
     native32_nt_override("NtTerminateProcess", nt_terminate_process);
     native32_nt_syscalls(NTDLL);
+    {
+        /* user32 and gdi32 lifted too: their win32k services */
+        uint32_t w[2], n = 0;
+        if ((w[n] = native32_module("user32.dll")) != 0) n++;
+        if ((w[n] = native32_module("gdi32.dll")) != 0) n++;
+        if (n) native32_nt_win32k(w, (int)n, "work/names/win32k_2000sp4.txt");
+        if (n) native32_nt_win32k_override("NtGdiInit", w32k_gdi_init);
+    }
     {
         /* csrss's \NLS sections, from Windows 2000's own NLS files */
         static const struct { const wchar_t* sec; const char* file; } nls_sec[] = {
@@ -157,7 +181,7 @@ static int host_main(int argc, char** argv) {
     }
     IMAGE_NT_HEADERS32* nt = (IMAGE_NT_HEADERS32*)(uintptr_t)(EXE_BASE + MEM32(EXE_BASE + 0x3C));
     uint32_t entry = EXE_BASE + nt->OptionalHeader.AddressOfEntryPoint;
-    fprintf(stderr, "cmd.exe: %u lifted functions, entering 0x%08X\n", recomp_dispatch_count, entry);
+    fprintf(stderr, "%s: %u lifted functions, entering 0x%08X\n", W2K_EXE, recomp_dispatch_count, entry);
     native32_call_guest(entry, 0, NULL);
     return (int)g_eax;
 }
