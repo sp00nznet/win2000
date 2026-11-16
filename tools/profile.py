@@ -28,12 +28,12 @@ COMMON = {'Common Desktop': 'Desktop', 'Common Start Menu': 'Start Menu', 'Commo
           'Common AppData': 'Application Data', 'Common Favorites': 'Favorites', 'Common Templates': 'Templates'}
 EXP = r'Software\Microsoft\Windows\CurrentVersion\Explorer'
 
-def seed(box, hive, var, base, folders):
+def seed(box, hive, var, base, folders, guest):
     root = r'Software\pcrecomp\%s\%s\%s' % (box, hive, EXP)
     for key, kind, fmt in (('User Shell Folders', winreg.REG_EXPAND_SZ, '%%%s%%\\%s'), ('Shell Folders', winreg.REG_SZ, None)):
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, root + '\\' + key) as k:
             for name, rel in folders.items():
-                winreg.SetValueEx(k, name, 0, kind, fmt % (var, rel) if fmt else os.path.join(base, rel))
+                winreg.SetValueEx(k, name, 0, kind, fmt % (var, rel) if fmt else guest + '\\' + rel)
     for rel in folders.values():
         os.makedirs(os.path.join(base, rel), exist_ok=True)
 
@@ -49,7 +49,8 @@ def colors(box, inf):
 
 if __name__ == '__main__':
     box, d = sys.argv[1], os.path.abspath(sys.argv[2])
-    seed(box, 'HKCU', 'USERPROFILE', os.path.join(d, 'user'), USER)
-    seed(box, 'HKLM', 'ALLUSERSPROFILE', os.path.join(d, 'all'), COMMON)
+    g = sys.argv[3] if len(sys.argv) > 3 else d     # the guest's name for DIR (in a file box: C:\...)
+    seed(box, 'HKCU', 'USERPROFILE', os.path.join(d, 'user'), USER, g + r'\user')
+    seed(box, 'HKLM', 'ALLUSERSPROFILE', os.path.join(d, 'all'), COMMON, g + r'\all')
     colors(box, os.path.join(os.path.dirname(__file__), '..', 'work', 'iso', 'I386', 'HIVEDEF.INF'))
     print('profile %s: %s' % (box, d))

@@ -14,6 +14,8 @@ ShellCompatibility) are left out until something asks for them.
 """
 import csv, os, re, sys, winreg
 import pefile
+# the guest's system32 (its SystemRoot is the host's name, C:\Windows): in the file box, the lifted modules
+SYS32 = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32')
 
 def reginst(path):
     p = pefile.PE(path, fast_load=True)
@@ -38,7 +40,7 @@ def lines(inf, mod):
     sub = lambda s: re.sub(r'%(\w+)%', lambda m: strs.get(m.group(1), m.group(0)), s)
     for l in [x for k, v in sec.items() if k != 'strings' and 'del' not in k for x in v]:
         f = [x.strip() for x in next(csv.reader([sub(l)], skipinitialspace=True))]
-        if len(f) >= 2 and f[0].upper() == 'HKCR' and re.match(r'(CLSID|AppID)\\', f[1], re.I):
+        if len(f) >= 2 and f[0].upper() == 'HKCR' and re.match(r'(CLSID|AppID)\\|(Folder|Directory|Drive)(\\|$)', f[1], re.I):
             yield f + [''] * (5 - len(f))
         # the shell's namespaces (Desktop, MyComputer, ...\NameSpace): with the box's own key the
         # host's is never enumerated (Win11's 33 desktop items were nameless folders on the desktop)
@@ -55,7 +57,10 @@ def hive_items(iso, dlls):
     ns = [x for x in lines(rd('HIVESFT.INF'), '') if re.search(r'Desktop\\NameSpace\\\{.*\}$', x[1], re.I)
           and srv.get(x[1].rsplit('\\', 1)[1].upper(), '').replace('.dll', '') in dlls]
     want = {x[1].rsplit('\\', 1)[1].upper() for x in ns}
-    return ns + [x for x in cls if x[1].split('\\')[1].upper() in want]
+    # and the shell's own classes: a folder's open verb is Windows 2000's "Explorer.exe /idlist,%I,%L"
+    # (the host's Folder\shell\open has no arguments: every folder opened as My Documents)
+    shell = [x for x in cls if x[1].split('\\')[0].upper() in ('FOLDER', 'DIRECTORY', 'DRIVE')]
+    return ns + [x for x in cls if '\\' in x[1] and x[1].split('\\')[1].upper() in want] + shell
 
 def main():
     box, d, dlls = sys.argv[1], sys.argv[2], sys.argv[3:]
@@ -69,12 +74,13 @@ def main():
         for hive, key, name, flags, val, *data in items:
             if flags and not re.match(r'(?i)^(0x)?[0-9a-f]+$', flags): flags, val = '', flags   # mydocs: HKLM,key,,"My Documents" (no flags field)
             fl = int(flags, 0) if flags else 0
-            # %SystemRoot%\System32\x.dll or a bare x.dll is the lifted module in DIR, never the host's
+            # %SystemRoot%\System32\x.dll or a bare x.dll is the lifted module in DIR, never the host's:
+            # named as the guest's system32 file, which the file box (pcrecomp syscall32.c) serves from DIR
             val = re.sub(r'(?i)^(%SystemRoot%\\System32\\)?(\w+\.dll)',
-                         lambda m: os.path.join(os.path.abspath(d), m.group(2)), val)
+                         lambda m: os.path.join(SYS32, m.group(2)), val)
             # so is a file in an INF directory (LDID 10/25 Windows, 11 System32): My Computer's %25%\Explorer.exe,0
             val = re.sub(r'(?i)^%(?:10|11|25)%\\(\w+\.(?:dll|exe))',
-                         lambda m: os.path.join(os.path.abspath(d), m.group(1).lower()), val)
+                         lambda m: os.path.join(SYS32, m.group(1).lower()), val)
             at = root if hive.upper() == 'HKCR' else r'Software\pcrecomp\%s\HKLM' % box
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, at + '\\' + key) as k:
                 if fl & 1 and fl >> 16 == 3:                     # REG_BINARY, its bytes across the fields
@@ -84,6 +90,16 @@ def main():
                     winreg.SetValueEx(k, name or None, 0, winreg.REG_EXPAND_SZ if fl & 0x20000 else winreg.REG_SZ, val)
             n += 1
     print('%d class lines into HKCU\\%s' % (n, root))
+    # My Computer's namespace is the box's (none of Windows 2000's items there is served by a lifted
+    # DLL): the host's (Win11's 3D Objects, Downloads, ...) were 11 nameless folders next to C:
+    winreg.CreateKey(winreg.HKEY_CURRENT_USER, r'Software\pcrecomp\%s\HKLM\SOFTWARE\Microsoft\Windows'
+                     r'\CurrentVersion\Explorer\MyComputer\NameSpace' % box).Close()
+    # The URL protocols' icons, which url.dll's registration code (no INF) writes on Windows 2000:
+    # the folder window's frame reads HKCR\http\DefaultIcon into a buffer it never checks
+    # (shdocvw sub_20E12126), so a missing key is an uninitialized path into Shell_GetCachedImageIndex
+    for proto in ('http', 'https', 'ftp'):
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, root + '\\' + proto + r'\DefaultIcon') as k:
+            winreg.SetValueEx(k, None, 0, winreg.REG_SZ, os.path.join(SYS32, 'url.dll') + ',0')
     # App Paths for each lifted program's runner (build\nt<name>.exe): the Run dialog's
     # "winmine" resolves there, and the host's launch guard starts only those
     b = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'build'))

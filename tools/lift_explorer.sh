@@ -9,3 +9,5 @@ cmd //d //c "$(cygpath -w "$PWD")\build.cmd --target ntexplorer" > work/build_nt
 echo built
 # Windows 2000's own COM classes into explorer's registry box (with a lifted ole32 the host's are not answered)
 py -3 tools/reginst.py 'w2k\explorer' $R browseui shell32 shdocvw comctl32 mydocs
+# url.dll as a file (its icons, for the URL protocols' DefaultIcon): never mapped as code
+[ -f $R/url.dll ] || 7z e -y -o$R work/iso/I386/URL.DL_ >/dev/null

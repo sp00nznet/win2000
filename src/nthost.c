@@ -326,7 +326,7 @@ static void host_createprocess(int ansi) {
     if (!CreateProcessW(run, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &out)) {
         g_eax = 0;
     } else {
-        fprintf(stderr, "[launch] %ls -> %ls (pid %lu)\n", stem, run, out.dwProcessId);
+        fprintf(stderr, "[launch] %ls -> %ls (pid %lu): %ls\n", stem, run, out.dwProcessId, line);
         if (pi) memcpy((void*)(uintptr_t)pi, &out, sizeof out);
         else CloseHandle(out.hProcess), CloseHandle(out.hThread);
         g_eax = 1;
