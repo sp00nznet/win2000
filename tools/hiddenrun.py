@@ -164,7 +164,12 @@ def main():
                 cid, text = what.split('=', 1)
                 u32.GetDlgItem.restype = W.HWND
                 e = u32.GetDlgItem(ws[0], int(cid, 0))
-                u32.PostMessageW(e, 0x00B1, 0, -1)                     # EM_SETSEL all
+                u32.FindWindowExW.restype = W.HWND
+                for _ in range(3):                                       # a combo box: its Edit (Open dialog)
+                    sub = u32.FindWindowExW(e, None, 'Edit', None) or u32.FindWindowExW(e, None, 'ComboBox', None)
+                    if not sub: break
+                    e = sub
+                u32.PostMessageW(e, 0x00B1, 0, -1)                    # EM_SETSEL all
                 for ch in text: u32.PostMessageW(e, 0x0102, ord(ch), 1)  # WM_CHAR
             elif ws and kind == 'dlgcmd':
                 u32.PostMessageW(ws[0], 0x0111, int(what, 0), 0)

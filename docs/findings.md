@@ -953,3 +953,35 @@ Gaps: host DLLs in the process (comdlg32 MRU, shell32, shlwapi SHSetValue)
 call the host advapi32 directly and are not boxed; RegEnum* see one side;
 deleting a value that exists only in the real key is a no-op; A profile reads
 skip the box.
+
+### Host DLLs boxed too
+
+The Windows DLLs in the process (comdlg32, shell32, shlwapi, the Explorer-style
+Open dialog's COM servers) now go through regbox as well: every import slot
+and delay-load slot that resolves to one of the boxed functions (whether it
+names advapi32, kernel32 or an api-ms-win-core-registry set) is pointed at the
+sandbox's, in every module except the host exe and ntdll/kernel32/kernelbase/
+advapi32/sechost. Modules loaded later are patched by an
+LdrRegisterDllNotification callback. A real key is opened from the caller's
+own handle, not by NT path: a 32-bit process's HKLM\Software is WOW64-redirected
+and HKCR is merged per user, and opening by NT path broke the Open dialog
+("not enough memory").
+
+Checked: notepad (stage 1 and lifted) File > Open, typed
+G:\recomp\pc\win2000\CMakeLists.txt, OK: the file opens (title), the dialog's
+ComDlg32 OpenSavePidlMRU/LastVisitedPidlMRU/CIDSizeMRU, CIDOpen, Accent, MrtCache
+writes land in HKCU\Software\pcrecomp\w2k\notepad, and the snapshot (Applets,
+winmine, Notepad, Explorer\ComDlg32, RecentDocs, Shell Folders, FileExts\.txt,
+Windows NT\...\Windows) is identical before and after. hiddenrun --type now
+reaches the Edit inside a combo box.
+
+One diagnostic run with the host-DLL hooks switched off (23:06:43-44, to find
+why the dialog failed) let the dialog write the live shell view caches; not
+touched, for the user to judge: HKCU\Software\Classes\Local Settings\Software\
+Microsoft\Windows\Shell\BagMRU (+ \1) and \Bags\4029\Shell, Local Settings\
+MuiCache\1e6\52C64B7E, Local Settings\MrtCache\...WindowsNotepad...\1dd39a47c156308
+(+ ad662cbc, b2467b14). Nothing in HKCU changed after 23:07 outside the box.
+
+Gaps left: a host DLL that finds a registry function with GetProcAddress is not
+boxed; the notepad window after the open shows no text in the shot (not looked
+into).
