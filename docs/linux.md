@@ -495,7 +495,7 @@ all; a click on File and a move hot-tracks Open. In sol, F2 deals anew.
   notepad's text can be compared pixel for pixel with a Windows 2000 VM.
 - Per-thread message queues when a second thread makes a window.
 
-## Stage 6 on Linux: mspaint (in progress)
+## Stage 6 on Linux: mspaint (done), wordpad (in progress)
 
 **State:** `mspaint-linux` builds and runs to its message loop on its own
 lifted mspaint, mfc42u **and comctl32**, plus user32, gdi32, kernel32,
@@ -538,10 +538,75 @@ Since then (pcrecomp `w2k-linux`): NtUserGetThreadState (0 focus,
 of NtUserCreateWindowEx/ShowWindow (class, style, size) to see where MFC's
 frame goes.
 
+### mspaint: up (pcrecomp 765d2e4, win2000 241742e)
+
+Why the frame stayed 6x25: that window was a message box, "OLE 2.0 was
+unable to start" (the ole32 stub failed OleInitialize, so AfxOleInit did).
+`NATIVE32_SYSCALLS=1` now logs every CreateWindowEx (class, text, style,
+size, parent) and ShowWindow. Then, in order:
+
+- OleInitialize succeeds. CommandLineToArgvW's array is GlobalAlloc'd
+  (mspaint GlobalFrees it; host memory crashed RtlFreeHeap).
+- **WH_CBT is called.** MFC registers its classes with DefWindowProc and
+  subclasses each window in its CBT hook at HCBT_CREATEWND. w32kposix keeps
+  one CBT hook and calls it straight from CreateWindowEx (`ntp_guest`, a
+  guest stdcall with the registers kept). CallNextHookEx reads CLIENTINFO's
+  phkCurrent (TEB +0x6EC, less the delta at +0x6E8); a fake HOOK with no
+  next and flag 1 makes it return 0.
+- NtUserDeferWindowPos (applied at once), EndDeferWindowPosEx, SetParent
+  (the tool box goes into its dock bar), SelectPalette: MFC's RecalcLayout.
+- **RLE4/RLE8 DIBs** (the tool icons are one 448x32 RLE bitmap).
+- CallHwnd 0x3D (SetMsgBox), CallOneParam 0x25 (PlayEventSound),
+  GetCursorFrameInfo, GetTextCharsetInfo (ANSI, Latin 1), GetRandomRgn
+  (the DC's visible rect), RectVisible, GetNearestColor. NtGdiGetLayout has
+  no service in this build (gdi32 never calls it).
+
+Compared with `shots/paint_ntmspaint_9.png` (the Windows build). The whole
+client does not line up: the Windows build's client is smaller (Windows
+11's frame), so MFC lays out a smaller view with scrollbars. Per region,
+each placed where it fits best, host system colours mapped to Windows
+2000's:
+
+| region | pixels that differ |
+|---|---|
+| tool box (58x272) | 1,232 of 15,776 |
+| colour box (250x52) | 500 of 13,000 |
+| whole client, linuxcmp `--syscolors` | 17,518 of 91,686 (layout) |
+
+Live under Xvfb (`linux_live.sh mspaint out/live "mousemove 110 100"
+"mousedown 1" "mousemove 160 150" "mousemove 200 190" "mouseup 1"`): the
+pencil draws the line on the canvas.
+
+### wordpad (`ntwordpad_lx`)
+
+Lifted: wordpad, mfc42u, riched20, comctl32 (work/lx) and the base set
+(64,868 functions, ~25 min). nthost_linux.c stubs (all failing or empty):
+ole32 StgOpenStorage, OleRegGetUserType, ReadClassStg,
+StgCreateDocfileOnILockBytes, CreateILockBytesOnHGlobal, ReleaseStgMedium;
+advapi32 RegDeleteKeyW; shell32 SHGetSpecialFolderPathW. riched20 and
+mfc42u import nothing from ole32.
+
+Fixed on the way:
+- **A new thread's TLS slots start empty.** The TEB copy carried the first
+  thread's TlsSlots, so MFC's worker thread (wordpad starts one) shared the
+  main thread's thread state and took m_pMainWnd; InitInstance then
+  returned FALSE with no message loop.
+- SERVERINFO's atomSysClass has MDIClient (6) and ComboLBox (7): a combo
+  box makes its list box by atom.
+
+**State:** the frame, both toolbars, the format bar's combo boxes, the
+ruler and RichEdit20W are created and the frame is shown. Then riched20
+crashes in RtlAllocateHeap (LocalAlloc from riched20 0x2070162C) while
+handling EM_SETOLECALLBACK (0x446): the heap is already corrupt. No shot yet.
+
 ### Next
 
-1. Answer the services above, then find out why MFC's frame stays 6x25. Start
-   with the CW_USEDEFAULT size, ShowWindow(SW_SHOWDEFAULT) and
-   NtUserGetThreadState(1), which is GTS_ACTIVEWINDOW.
-2. wordpad: the same with riched20 (`ntwordpad_lx`), and check which
-   ole32 imports riched20 and wordpad need.
+1. wordpad: find the heap corruption (an `NtAllocateVirtualMemory` /
+   RtlValidateHeap check after each riched20 message would narrow it;
+   suspects: a stub with the wrong argument count, the CBT hook, the
+   worker thread). Unanswered: NtGdiGetTextFaceW, NtUserFindWindowEx,
+   NtUserGetClassName, NtGdiEnumFontOpen (format bar's font list),
+   NtUserCountClipboardFormats, NtUserUnregisterClass, CallHwndParam 0x41/0x46
+   on combo windows. Then compare and type text live.
+2. mspaint: the canvas's DIB section (`CreateDIBSection ... bits are not
+   read back`), the inactive caption after the live start.

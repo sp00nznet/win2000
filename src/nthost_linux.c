@@ -74,6 +74,7 @@ static void g_zero3(void) { RET(0, 3); }
 static void g_zero6(void) { RET(0, 6); }
 static void g_zero4(void) { RET(0, 4); }
 static void g_zero5(void) { RET(0, 5); }
+static void g_enoent2(void) { RET(ERROR_FILE_NOT_FOUND, 2); }
 static void g_enoent4(void) { RET(ERROR_FILE_NOT_FOUND, 4); }
 static void g_enoent8(void) { RET(ERROR_FILE_NOT_FOUND, 8); }
 static void g_zero0(void) { RET(0, 0); }
@@ -88,12 +89,20 @@ static const ntp_stub_t g_advapi32_gui[] = {
     { "RegCreateKeyExA", 9, g_RegCreateKeyExW }, { "RegOpenKeyW", 3, a_RegOpenKeyW }, { "RegOpenKeyExW", 5, a_RegOpenKeyExW },
     { "RegEnumKeyExA", 8, g_enoent8 }, { "RegEnumKeyW", 4, g_enoent4 }, { "RegQueryValueW", 4, g_enoent4 },
     { "RegSetValueExA", 6, g_zero6 }, { "RegSetValueW", 5, g_zero5 },
+    /* wordpad */
+    { "RegDeleteKeyW", 2, g_enoent2 },
 };
 /* ole32, imm32: MFC's storage and IME calls; nothing here has either */
 static void o_fail2(void) { RET(0x80004005u, 2); }
+static void o_fail3(void) { RET(0x80004005u, 3); }
+static void o_fail4(void) { RET(0x80004005u, 4); }
+static void o_fail6(void) { RET(0x80004005u, 6); }
 static const ntp_stub_t g_ole32[] = {
     { "CoTaskMemFree", 1, g_zero1 }, { "StringFromCLSID", 2, o_fail2 }, { "WriteClassStg", 2, o_fail2 },
     { "WriteFmtUserTypeStg", 3, g_zero3 }, { "OleInitialize", 1, g_zero1 }, { "OleUninitialize", 0, g_zero0 },
+    /* wordpad: no compound files (each call fails) */
+    { "StgOpenStorage", 6, o_fail6 }, { "OleRegGetUserType", 3, o_fail3 }, { "ReadClassStg", 2, o_fail2 },
+    { "StgCreateDocfileOnILockBytes", 4, o_fail4 }, { "CreateILockBytesOnHGlobal", 3, o_fail3 }, { "ReleaseStgMedium", 1, g_zero1 },
 };
 static const ntp_stub_t g_imm32[] = {
     { "ImmAssociateContext", 2, g_zero2 }, { "ImmGetCompositionStringW", 4, g_zero4 }, { "ImmGetCompositionWindow", 2, g_zero2 },
@@ -114,6 +123,7 @@ static void s_DragQueryFileW(void) { RET(0, 4); }
 static const ntp_stub_t g_shell32[] = {
     { "ShellAboutW", 4, s_ShellAboutW }, { "DragQueryFileW", 4, s_DragQueryFileW }, { "DragFinish", 1, g_zero1 },
     { "DragAcceptFiles", 2, g_zero2 }, { "CommandLineToArgvW", 2, s_CommandLineToArgvW }, { "ExtractIconW", 3, g_zero3 },
+    { "SHGetSpecialFolderPathW", 4, g_zero4 },
 };
 /* notepad's common dialogs and printer: none here (each one cancelled) */
 static void c_GetFileTitleW(void) {           /* the file part of a path into the buffer */
