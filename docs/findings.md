@@ -1267,3 +1267,79 @@ So suspect what came after: the MsgWaitForMultipleObjects host replacement
 from their random seed; check that W2K_FIXED_TICK still reaches them. Next,
 before more explorer work: run interact with the nthost MsgWait replacement
 compiled out (explorer only) and bisect.
+
+### The regression drift: native32_replace's 32-slot table; explorer's first paint
+
+**Drift cause (fixed, pcrecomp 08023da).** `native32_replace` kept 32
+entries and silently dropped the rest. nthost's two MsgWaitForMultipleObjects
+replacements pushed the last ones out: `GetTickCount` (W2K_FIXED_TICK) and
+msvcrt `time` (W2K_FIXED_TIME). So winmine's mines and sol's and freecell's
+deals came from the real clock. The table is now 256 entries and a full table
+aborts loudly. Bisecting the icon commit also found a second, real
+difference: SERVERINFO +0xE48 BitCount, +0xE4C Planes and +0xE4D BitsPixel
+were 0, so Windows 2000's user32 chose the 16-colour icon image where the
+host chooses the 256-colour one (notepad's caption icon, 153 px). They are
+now filled from the host. (The half-mask retry does fire for notepad's icon;
+that is fine.) MsgWait and the lock changes were ruled out: notepad's 153 px
+stayed with the MsgWait replacement compiled out.
+
+**Harness (22ae1ce).** hiddenrun's "make the top window active" never
+matched, because GetForegroundWindow only answers for the input desktop. It
+now asks the window's thread (GetGUIThreadInfo), waits for the activation,
+and leaves an open menu alone. interact.py keeps each run's hiddenrun
+timeline in shots/<run>_<build>.out.
+
+**Regression (this session, machine ~66% busy with other jobs).** winmine
+7/7 and sol's/freecell's deals are back to matching. The remaining non-zero
+states move between runs and between which build lags (host or lifted).
+Every one checked was a half-painted shot: notepad's edit area, a winmine
+cell row, sol's last card not yet turned, a packager pane, a wordpad toolbar
+button, mspaint's line. Run interact again on an idle machine before calling
+any of them a code difference. mspaint once hit the old startup-heap crash
+(fault in ntdll sub_2004B37E, access 6F724644 = UTF-16 text): still open
+and intermittent.
+
+**Explorer (pcrecomp b358cb4, tools/profile.py, run_explorer.sh).**
+- The shell32 sub_20A13F31 "stack overflow" is real recursion on the main
+  thread (esp at the stack's guard page; the UTF-16 in the registers is
+  leftover). Its icon-cache lookup (GetIconLocation, then
+  Shell_GetCachedImageIndex = -1, then extract and add) never filled the
+  cache, because NtUserGetIconInfo and NtUserGetIconSize were unanswered,
+  so ImageList_ReplaceIcon failed. Both are answered now (GetIconSize's cy
+  doubled, as win32k keeps it).
+- The guest's environment had the host's 3.5 KB Path. Path is now the
+  loader's own search path.
+- Explorer walked the host's real Start Menu (C:\ProgramData\...) and
+  opened host exes for icons. Windows 2000's PrivateExtractIconsW then
+  faulted on a PE32+ exe (sub_2032550B). tools/profile.py gives explorer a
+  private profile (work/profile/{user,all}): Windows 2000's User Shell
+  Folders and Shell Folders in its box, HKCU and HKLM. run_explorer.sh points
+  USERPROFILE, ALLUSERSPROFILE, ProgramData, APPDATA, TEMP, ... at it.
+- The host's mpr.dll (WNet) was proxied into the guest. run_explorer.sh's
+  check failed the run; it is now refused at the section guard (shell32's
+  delay-load stubs answer failure).
+- NtUserRedrawWindow is answered; with no window it means the virtual
+  screen, never the host's desktop.
+
+Now explorer runs to the watchdog with no fault (2/2). The **first paint
+reaches the screen**: shots/exp/s13_22.png shows the desktop listview's item
+labels at the top left, drawn as the raw string "@%1...", with no icons, on
+a black background. Registry snapshot (HKCU\Control Panel,
+CurrentVersion\Explorer, Policies) before the first explorer run and after
+all of them: no change.
+
+Next:
+1. The labels' "@%1": a display name built from a format/indirect string
+   (an "@dll,-id" resource string Windows 2000 does not resolve, or a
+   FormatMessage insert never filled). Find which item names come out like
+   this (the box's CLSID default values from reginst against the host's
+   LocalizedString).
+2. The icons: the cache adds now succeed. Check the listview draws them
+   (ImageList_Draw goes through NtGdiBitBlt with the host icon bitmaps from
+   GetIconInfo: guest handles?).
+3. The background: the desktop colour/wallpaper (Control Panel\Colors
+   Background, PaintDesktop).
+4. The taskbar (the tray window's region: NtUserSetWindowRgn is still
+   unanswered), then the Start menu and Run -> winmine.
+Still unanswered and left alone on purpose: NtUserSetShellWindowEx,
+RegisterHotKey, SendNotifyMessage(HWND_BROADCAST).
