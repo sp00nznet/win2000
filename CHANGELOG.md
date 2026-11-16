@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- sol and freecell draw every card on lifted user32 (0 pixels): win32k's
+  `__ClientThreadSetup` callback (user32 makes ghdcBits2 there),
+  NtGdiGetDCforBitmap answered from SelectBitmap, NtGdiSaveDC/RestoreDC.
+- packager on lifted user32 (`ntpackager`, the ANSI path): rebased with
+  rebase.py (its bound imports dropped), WS_EX_ANSICREATOR stripped, ANSI
+  window names converted, NtUserEnableScrollBar.
 - notepad and calc on their own lifted user32 + gdi32 (`build/ntnotepad.exe`,
   `build/ntcalc.exe`, CMake `w2k_user_host`): pixel-identical to stage 1 at
   start, with text typed (notepad) and after 12+3= (calc). `interact.py`

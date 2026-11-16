@@ -669,3 +669,46 @@ come straight from resources and are right, the composed ones are not. Next:
 trace cards.dll's cdtDraw on ntsol with NATIVE32_SYSCALLS and answer what its
 composition needs (likely NtGdiSetDIBitsInternal or a bitmap's DC through
 NtGdiGetDCforBitmap).
+
+### Black cards fixed; packager on the ANSI path
+
+**The black cards.** user32's LoadBitmap copies a DIB-format bitmap into a
+device bitmap by selecting it into `ghdcBits2` (0x203591E8) and blitting.
+user32 makes that DC in ClientThreadSetup (0x20322753), which win32k calls
+back as `__ClientThreadSetup` (KernelCallbackTable 74) when a thread turns
+GUI; nothing called it, so the DC was 0, the BitBlt had no source and the
+composed bitmaps stayed black. Now called once, after the guest loader is
+done (earlier, during user32's init, gdi32 faults). With the DC in place,
+gdi32's SetDIBits asks NtGdiGetDCforBitmap for the DC holding the bitmap
+(a second DC cannot select it) and saves it with NtGdiSaveDC: both answered
+(SelectBitmap remembers bitmap -> DC). ClientThreadSetup also registers the
+system control classes again; the host refuses (1410), harmlessly.
+
+**packager.** It faulted at 0x7800776E: `work/rebased-gui/packager.exe` was a
+plain copy whose bound imports pointed at msvcrt's linked base. rebase.py
+drops them (run one exe per call: two exes both at 0x01000000 collide in its
+layout). Then CreateWindowExA's WS_EX_ANSICREATOR (0x80000000) made the
+host's CreateWindowExW fail with 87: stripped; the window name LARGE_STRING
+with bAnsi is converted.
+
+| Compare | Result |
+|---|---|
+| interact winmine (7), notepad (2), sol (2), freecell (2) | 0 |
+| gdicmp all five | 0 |
+| interact calc (2) | 708 (below) |
+| packager stage 1 vs ntpackager, start (501x179) | 322 |
+
+**calc's 708 and packager's 322** are ClearType pixels one level apart in
+button/label text. calc never calls SetBkMode; its DRAWITEM DC is OPAQUE on
+both builds. Forcing TRANSPARENT in NtGdiExtTextOutW gives calc 0, so the
+host's DrawText draws OPAQUE text differently from Windows 2000's DrawText
+calling ExtTextOutW. Emulating it for every OPAQUE ExtTextOutW (fill, then
+transparent) broke freecell's status text (191), so it was reverted: the fix
+belongs at DrawText level, not ExtTextOutW. packager also has 3 pixels at
+the right edge of its "--Content--" highlight.
+
+Not answered yet: NtUserCallNoParam 0x12 (asked by ClientThreadSetup; 0 continues),
+NtUserGetThreadDesktop, NtGdiGetCharSet (packager), and on clipbrd the
+calls the handoff listed. NtUserSystemParametersInfo passes SET actions to
+the host as well; no accessory sends one, but a guest could change live
+settings. Guard it before a program that does.
