@@ -115,6 +115,8 @@ def main():
     ap.add_argument('--type', action='append', default=[], help='ID=TEXT@T: typed into control ID of the top window '
                     '(a dialog): EM_SETSEL all, then a posted WM_CHAR per character')
     ap.add_argument('--dlgcommand', action='append', default=[], help='ID@T: WM_COMMAND ID posted to the top window')
+    ap.add_argument('--drag', action='append', default=[], help='X1,Y1,X2,Y2@T: a left-button drag in the main '
+                    'window client coordinates, posted to the deepest child under X1,Y1')
     ap.add_argument('cmd', nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = a.cmd[1:] if a.cmd[:1] == ['--'] else a.cmd
@@ -132,7 +134,8 @@ def main():
                    [(float(c.split('@')[1]), 'cmd', c.split('@')[0]) for c in a.command] +
                    [(float(c.split('@')[1]), 'post', c.split('@')[0]) for c in a.post] +
                    [(float(c.split('@')[1]), 'type', c.split('@')[0]) for c in a.type] +
-                   [(float(c.split('@')[1]), 'dlgcmd', c.split('@')[0]) for c in a.dlgcommand])
+                   [(float(c.split('@')[1]), 'dlgcmd', c.split('@')[0]) for c in a.dlgcommand] +
+                   [(float(c.split('@')[1]), 'drag', c.split('@')[0]) for c in a.drag])
     while time.time() - t0 < a.secs and p.poll() is None:
         while posts and time.time() - t0 >= posts[0][0]:
             _, kind, what = posts.pop(0)
@@ -143,6 +146,20 @@ def main():
                 lp = (y << 16) | (x & 0xFFFF)
                 u32.PostMessageW(main_w, 0x0201, 1, lp)   # WM_LBUTTONDOWN, MK_LBUTTON
                 u32.PostMessageW(main_w, 0x0202, 0, lp)   # WM_LBUTTONUP
+            elif main_w and kind == 'drag':
+                x1, y1, x2, y2 = map(int, what.split(','))
+                u32.ChildWindowFromPointEx.restype = W.HWND
+                h, pt = main_w, W.POINT(x1, y1)
+                while True:   # down to the deepest visible child (pt in h's client coordinates)
+                    c = u32.ChildWindowFromPointEx(h, pt, 1)
+                    if not c or c == h: break
+                    u32.MapWindowPoints(h, c, ctypes.byref(pt), 1); h = c
+                dx, dy = pt.x - x1, pt.y - y1
+                for i in range(11):
+                    x, y = x1 + (x2 - x1) * i // 10 + dx, y1 + (y2 - y1) * i // 10 + dy
+                    lp = ((y & 0xFFFF) << 16) | (x & 0xFFFF)
+                    u32.PostMessageW(h, 0x0201 if i == 0 else 0x0200, 1, lp)   # WM_LBUTTONDOWN, then WM_MOUSEMOVE
+                u32.PostMessageW(h, 0x0202, 0, lp)                              # WM_LBUTTONUP
             elif ws and kind == 'type':
                 cid, text = what.split('=', 1)
                 u32.GetDlgItem.restype = W.HWND

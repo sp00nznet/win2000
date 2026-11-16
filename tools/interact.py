@@ -30,6 +30,9 @@ APPS = {
     'notepad': [('np', [('start', 9, []), ('typed', 11, ['--type', '15=Hello, Windows 2000@9.5'])])],
     'sol': [('sol', [('deal', 8, []), ('deck click', 10, ['--click', '40,60@9'])])],
     'freecell': [('fc', [('deal', 8, ['--command', '102@3']), ('card to cell', 11, ['--click', '40,300@9', '--click', '40,50@10'])])],
+    'packager': [('pk', [('start', 6, [])])],
+    'mspaint': [('paint', [('start', 9, []), ('line', 11, ['--drag', '100,100,250,180@9.5'])])],
+    'wordpad': [('wp', [('start', 9, []), ('typed', 11, ['--type', '0xE900=Hello, Windows 2000@9.5'])])],
     'calc': [('calc', [('start', 5, []),
                        ('12+3=', 8, sum((['--command', '%d@%.1f' % (CALC[c], 5.5 + 0.3 * i)] for i, c in enumerate('12+3=')), []))])],
 }

@@ -28,7 +28,7 @@ function(w2k_host name main)
   target_link_libraries(${name} PRIVATE user32 gdi32 kernel32 winmm advapi32)
 endfunction()
 
-foreach(app winmine sol freecell notepad calc clipbrd packager)
+foreach(app winmine sol freecell notepad calc clipbrd packager mspaint wordpad)
   w2k_host(${app} src/apphost.c)
   if(TARGET ${app})
     target_compile_definitions(${app} PRIVATE APP_EXE="${app}.exe" APP_BASE=0x01000000u)
@@ -39,6 +39,14 @@ foreach(app sol freecell)   # cards.dll is not on a modern Windows: lifted too
     target_compile_definitions(${app} PRIVATE "APP_DLLS=,{\"cards.dll\",0x74260000u}")
   endif()
 endforeach()
+
+# MFC (Windows 2000's mfc42u, riched20): lifted from the rebased copies, as on lifted user32
+if(TARGET mspaint)
+  target_compile_definitions(mspaint PRIVATE APP_SYS="work/rebased-gui" "APP_DLLS=,{\"mfc42u.dll\",0x20600000u}")
+endif()
+if(TARGET wordpad)
+  target_compile_definitions(wordpad PRIVATE APP_SYS="work/rebased-gui" "APP_DLLS=,{\"mfc42u.dll\",0x20600000u},{\"riched20.dll\",0x20700000u}")
+endif()
 
 # Stage 2: cmd.exe on lifted msvcrt + kernel32 + ntdll (rebased: tools in README)
 w2k_host(cmd src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c)
@@ -70,6 +78,8 @@ w2k_user_host(ntclipbrd clipbrd.exe)     # RegisterClassA: the ANSI path
 w2k_user_host(ntpackager packager.exe)   # RegisterClassA
 w2k_user_host(ntsol sol.exe ",{\"cards.dll\",0x20500000u}")
 w2k_user_host(ntfreecell freecell.exe ",{\"cards.dll\",0x20500000u}")
+w2k_user_host(ntmspaint mspaint.exe ",{\"mfc42u.dll\",0x20600000u}")
+w2k_user_host(ntwordpad wordpad.exe ",{\"mfc42u.dll\",0x20600000u},{\"riched20.dll\",0x20700000u}")
 
 # Interim: winmine on its own lifted gdi32, the host's user32 (pcrecomp w32kgdi.c)
 w2k_host(ntwmgdi src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c ${N32}/w32kgdi.c)

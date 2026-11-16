@@ -133,6 +133,26 @@ static void host_drawtext(void) {
     g_eax = (uint32_t)DrawTextW(h, (LPCWSTR)(uintptr_t)ARG(1), (int)ARG(2), (RECT*)(uintptr_t)ARG(3), ARG(4));
     g_esp += 4 + 20;
 }
+/* DrawTextA too (packager): the host's DT_CALCRECT is a pixel narrower than
+ * Windows 2000's for the same font, and packager sizes its labels with it */
+static void host_drawtexta(void) {
+    HDC h = (HDC)native32_gdi_dc(ARG(0));
+    g_eax = (uint32_t)DrawTextA(h, (LPCSTR)(uintptr_t)ARG(1), (int)ARG(2), (RECT*)(uintptr_t)ARG(3), ARG(4));
+    g_esp += 4 + 20;
+}
+/* CallNextHookEx(hhk, code, wParam, lParam): Windows 2000's walks the
+ * thread's hook chain client-side (CLIENTINFO); the hooks are the host's */
+static void host_nexthook(void) {
+    g_eax = (uint32_t)CallNextHookEx(NULL, (int)ARG(1), ARG(2), ARG(3));
+    g_esp += 4 + 16;
+}
+/* GetProp(hwnd, name): Windows 2000's reads the WND's property list
+ * client-side; the properties are the host window's (NtUserSetProp) */
+static void host_getpropw(void) { g_eax = (uint32_t)(uintptr_t)GetPropW((HWND)(uintptr_t)ARG(0), (LPCWSTR)(uintptr_t)ARG(1)); g_esp += 4 + 8; }
+static void host_getpropa(void) { g_eax = (uint32_t)(uintptr_t)GetPropA((HWND)(uintptr_t)ARG(0), (LPCSTR)(uintptr_t)ARG(1)); g_esp += 4 + 8; }
+static void host_getscrollinfo(void) { g_eax = GetScrollInfo((HWND)(uintptr_t)ARG(0), (int)ARG(1), (SCROLLINFO*)(uintptr_t)ARG(2)); g_esp += 4 + 12; }
+static void host_getscrollpos(void) { g_eax = (uint32_t)GetScrollPos((HWND)(uintptr_t)ARG(0), (int)ARG(1)); g_esp += 4 + 8; }
+static void host_getscrollrange(void) { g_eax = GetScrollRange((HWND)(uintptr_t)ARG(0), (int)ARG(1), (int*)(uintptr_t)ARG(2), (int*)(uintptr_t)ARG(3)); g_esp += 4 + 16; }
 static void host_adjust3(void) {
     g_eax = AdjustWindowRect((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2));
     g_esp += 4 + 12;
@@ -242,6 +262,13 @@ static int host_main(int argc, char** argv) {
         native32_replace(native32_export(u, "AdjustWindowRectEx"), host_adjust);
         native32_replace(native32_export(u, "AdjustWindowRect"), host_adjust3);
         native32_replace(native32_export(u, "DrawTextW"), host_drawtext);
+        native32_replace(native32_export(u, "DrawTextA"), host_drawtexta);
+        native32_replace(native32_export(u, "CallNextHookEx"), host_nexthook);
+        native32_replace(native32_export(u, "GetPropW"), host_getpropw);
+        native32_replace(native32_export(u, "GetPropA"), host_getpropa);
+        native32_replace(native32_export(u, "GetScrollInfo"), host_getscrollinfo);
+        native32_replace(native32_export(u, "GetScrollPos"), host_getscrollpos);
+        native32_replace(native32_export(u, "GetScrollRange"), host_getscrollrange);
     }
 #endif
     if (getenv("W2K_FIXED_TICK"))

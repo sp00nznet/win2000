@@ -71,7 +71,10 @@ static unsigned __cdecl fixed_time(unsigned* t) {
 static DWORD WINAPI fixed_tick(void) { return (DWORD)strtoul(getenv("W2K_FIXED_TICK"), NULL, 0); }
 
 static int host_main(int argc, char** argv) {
-    const char* sys = "work\\sys";
+#ifndef APP_SYS
+#define APP_SYS "work\\sys"
+#endif
+    const char* sys = APP_SYS;
     char dir[MAX_PATH];
     for (int i = 1; i < argc; i++)
         if (!strcmp(argv[i], "--mute") || !strcmp(argv[i], "--headless")) SetEnvironmentVariableA("PCRECOMP_MUTE", "1");
