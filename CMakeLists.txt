@@ -28,7 +28,7 @@ function(w2k_host name main)
   target_link_libraries(${name} PRIVATE user32 gdi32 kernel32 winmm advapi32)
 endfunction()
 
-foreach(app winmine sol freecell notepad calc)
+foreach(app winmine sol freecell notepad calc clipbrd packager)
   w2k_host(${app} src/apphost.c)
   if(TARGET ${app})
     target_compile_definitions(${app} PRIVATE APP_EXE="${app}.exe" APP_BASE=0x01000000u)
@@ -66,6 +66,8 @@ endfunction()
 w2k_user_host(ntwinmine winmine.exe)
 w2k_user_host(ntnotepad notepad.exe)
 w2k_user_host(ntcalc calc.exe)
+w2k_user_host(ntclipbrd clipbrd.exe)     # RegisterClassA: the ANSI path
+w2k_user_host(ntpackager packager.exe)   # RegisterClassA
 w2k_user_host(ntsol sol.exe ",{\"cards.dll\",0x20500000u}")
 w2k_user_host(ntfreecell freecell.exe ",{\"cards.dll\",0x20500000u}")
 

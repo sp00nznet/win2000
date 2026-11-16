@@ -605,3 +605,67 @@ all 0.
 Harness: `hiddenrun.py` captures with PrintWindow (PW_RENDERFULLCONTENT); the
 window DC is only there to make a compatible bitmap (a stale comment said
 BitBlt).
+
+### The remaining call indexes, read off user32
+
+Found by scanning user32 for `push imm8; ...; call <stub>` and naming the
+caller by its nearest export:
+
+| Service, index | What (caller) | Answer |
+|---|---|---|
+| NtUserCallHwndParam 0x41 | ClearWindowState, 0x46's mirror (called only when the bit is set) | the WND bit cleared |
+| NtUserCallHwndLock 0x48 | DrawMenuBar | the host's |
+| NtUserCallHwndLock 0x50 | UpdateWindow | the host's |
+| NtUserCallOneParam 0x24 | MessageBeep | the host's (silent under PCRECOMP_MUTE) |
+| NtUserCallOneParam 0x26 | PostQuitMessage | the host's |
+| NtUserCallOneParam 0x2D | ShowCursor | the host's |
+| NtUserCallOneParam 0x33 | GetProcessDefaultLayout (param: the DWORD* it fills) | the host's |
+| NtUserCallOneParam 0x19 | CreateIcon/CreateIconIndirect/LoadCursorFromFile: an empty cursor object, then NtUserSetCursorIconData | not answered |
+| NtGdiGetDCforBitmap | the DC a bitmap is selected into | 0 (none known) |
+
+NtUserSetWindowLong GWL_WNDPROC (guest subclassing): the new procedure goes in
+WND+0x5C and the host window gets wnd_thunk, so sent and posted messages both
+reach it; the old one is returned (a host control's own procedure is called
+through the bridge by the guest's CallWindowProc). Untested: none of the
+accessories subclasses.
+
+### The ANSI path: clipbrd and packager (in progress)
+
+clipbrd (ClipBook Viewer) and packager (Object Packager) register their
+classes with RegisterClassA. Both lifted at stage 1 and on lifted user32
+(`ntclipbrd`, `ntpackager`; expand CLIPBRD.EX_ and PACKAGER.EX_ into
+work/sys and copy to work/rebased-gui).
+- stage 1 clipbrd exits at once (0, no window): ClipBook needs its NetDDE
+  service; a poor test.
+- ntclipbrd: its ANSI class registers and a 16x39 window appears; then
+  NtUserFindWindowEx, NtUserCallHwnd 0x3D, NtUserCallOneParam 0x25,
+  NtUserCallHwndLock 0x4C, NtUserModifyUserStartupInfoFlags unanswered, and a
+  CreateWindowExW fails with 87.
+- stage 1 packager runs (501x179); ntpackager faults at once in host code
+  (0x7800776E, sub_010095D0, a native call): next to look at.
+- NtUserSetWindowLong answers GWL_WNDPROC only: other indexes forwarded to
+  the host broke winmine's Custom dialog (82,473 pixels; a guest dialog's
+  DWL_* live in its DIALOG). NtGdiGetDeviceWidth answered with HORZRES sent
+  gdisol into a loop in gdi32: left unanswered.
+
+### State at this handoff (the session screen is wide again)
+
+Mid-session the session's display went back to a wide mode (SM_CXSCREEN no
+longer 480; not changed from here): notepad now opens 1440x737, sol 601x443,
+freecell 640x480, and stage 1 draws cards again.
+
+| Compare | Result |
+|---|---|
+| interact winmine (7 states), notepad (2) | 0 |
+| gdicmp sol, freecell, notepad, calc, winmine | 0 |
+| interact calc start / 12+3= | 708: also with the previous commit's code (stash test), so from the display change, not this change; button-edge pixels |
+| interact sol deal / deck click | 40,231 / 41,328: lifted user32 draws the face cards and the deck but the pip cards, empty piles and card backs come out black |
+| interact freecell | 38,698: the same |
+
+The black cards: cards.dll builds them in memory DCs from DIB-format bitmaps
+(NtGdiCreateDIBitmapInternal fInit 2, no bits, here a device-compatible
+bitmap) and fills them with SetDIBits / blits the face bitmaps; the face cards
+come straight from resources and are right, the composed ones are not. Next:
+trace cards.dll's cdtDraw on ntsol with NATIVE32_SYSCALLS and answer what its
+composition needs (likely NtGdiSetDIBitsInternal or a bitmap's DC through
+NtGdiGetDCforBitmap).
