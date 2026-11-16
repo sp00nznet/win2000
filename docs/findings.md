@@ -1746,3 +1746,77 @@ records (the host shell's window tracking). The guest wrote only to its box.
 Next: the desktop z-order on click (keep the desktop at the bottom), then the
 menuband's own click/keyboard path (its GETMESSAGE hook), the launched
 program's frame and taskbar button.
+
+### Frames, a taskbar button, the desktop stays down (handoff)
+
+pcrecomp af703b0 (w2k). shots/exp (local): w1_24.png / final_24.png (winmine
+started from Run, framed, its taskbar button "Minesweeper", the desktop
+clicked at 21 s and still under everything), z4_14.png (the Run dialog with
+its caption).
+
+- **Desktop click raised the desktop.** A host child without WS_CHILD is
+  activated (and raised) by a click. wnd_thunk now pins the shell window
+  (SetShellWindowEx's) to HWND_BOTTOM at every WM_WINDOWPOSCHANGING, before and
+  after the guest sees it. The icons-vanish-after-a-click bug is separate: My
+  Computer's icon/label still drops out of some shots and comes back (a
+  listview redraw, not looked at).
+- **No caption on winmine / the Run dialog.** The frame was there but never
+  painted: a window created top-level keeps DWM's non-client rendering after
+  SetParent onto the screen, and DWM draws nothing for a child. A captioned
+  window ((style & WS_CAPTION) == WS_CAPTION; WS_BORDER/WS_DLGFRAME alone
+  matched the tray and the BaseBar and lost both) put on the screen gets
+  DWMWA_NCRENDERING_POLICY = disabled and SetWindowTheme(L"", L""): the
+  classic, Windows 2000 caption and borders.
+- **winmine clipped.** Windows 2000's AdjustWindowRectEx has no padded border,
+  so every size the guest computes is short by the host's padding (10 px on
+  winmine). Create already added it; frame_pad is now shared and added on every
+  SetWindowPos/MoveWindow of a captioned window of the screen.
+  ponytail: a guest that resizes from its own GetWindowRect would grow.
+- **Taskbar button.** user32: CallHwnd 0x3C RegisterShellHookWindow, 0x39
+  Deregister; CallHwndOpt 0x3E SetProgmanWindow, 0x3F SetTaskmanWindow.
+  Answered locally (never the host's). The screen window (now screen_proc) has
+  a 250 ms timer: its visible, unowned children of other processes are tasks,
+  and it posts "SHELLHOOK" HSHELL_WINDOWCREATED / DESTROYED / ACTIVATED to
+  explorer's registered window. Log: `[user] shell hook 1: <hwnd>`. The button
+  then showed the icon but no text: explorer draws task buttons with
+  DrawCaptionTemp(hwnd, ..., UNICODE_STRING with a NULL buffer), which means the
+  window's own title; the shim passed "". Fixed.
+  ponytail: explorer's own top-level windows (a folder window) are not reported.
+- Also answered: NtUserGetClassName (explorer asks it of each task),
+  NtUserInternalGetWindowText (explorer imports it), NtUserAttachThreadInput
+  (both threads this process's, else 0), CallHwndLock 0x4C (user32's dialog
+  creation trims the system menu of a WS_SYSMENU dialog with no size/min/max
+  box: the host made its own, answered 1), SetForegroundWindow (0x4D) on
+  another program of the screen raises it there (HWND_TOP, no activation).
+
+**Start menu input: not solved (tried, reverted).** The menu filter is one
+WH_GETMESSAGE hook from browseui (CMBMsgFilter, set on the tray thread at
+popup). A posted WM_LBUTTONDOWN/UP on the Run item reaches the menuband
+toolbar: it invalidates, notifies its parent (NM_CUSTOMDRAW, TB_GETBUTTONINFO
+for 0x191), PeekMessage's for a drag; nothing runs and no hot item shows.
+Two leads tried, neither changed anything, both reverted:
+(1) a posted mouse message's MSG.pt is the host cursor, not its point: a
+WH_GETMESSAGE thunk and GetMessage/PeekMessage setting pt = ClientToScreen
+(lParam); (2) GetCapture is client-side NULL while gpsi+0x864 (cCaptures) is
+0, else NtUserGetThreadState(2), which answers 0 (only 0x11 is answered;
+focus 0 and active 1 are 0 too): set 0x864 = 1 and answered 2 from the host.
+Next: `--calltrace` on the tray thread from the button-up, through comctl32's
+toolbar WM_LBUTTONUP to browseui's CMenuToolbarBase (TBN_* / WM_COMMAND) and
+see where it stops; GetThreadState 0/1 being always 0 is a likely suspect
+(menuband checks focus), but answering them changes the 8 apps' runs.
+Run is still reached with WM_COMMAND 0x191 to Shell_TrayWnd.
+
+Not started: mydocs.dll, the My Computer icon.
+
+interact (all 8, after the runtime change): winmine, notepad, calc, mspaint,
+wordpad all 0 (wordpad's 337/930 did not show this time); freecell 4790/4790
+(the known flake); sol deal 0 on a rerun, deck click 6593 both runs;
+packager 10637 both runs, where the stage 1 reference shot is the half-drawn
+one (PrintWindow's pane flake) and the lifted build is complete. sol's deck
+click not looked at.
+
+Registry: work/regsnap/before5.txt (before the first explorer run) and
+after5.txt (after the last, final_24): identical (work/regsnap/snap.sh, the
+four keys). The guest wrote only to its box.
+
+Next: the Start menu's own input (above), then mydocs.dll / My Computer's icon.
