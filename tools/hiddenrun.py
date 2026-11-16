@@ -18,7 +18,10 @@ def windows_of(pid, desk):
     cb = ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
     def f(h, _):
         p = W.DWORD(); u32.GetWindowThreadProcessId(h, ctypes.byref(p))
-        if p.value != os.getpid() and u32.IsWindowVisible(h):   # the private desktop holds only the run's process tree (hold_image relaunches)
+        # Windows 11 adds its UAC input indicator windows (UAC_InputIndicator*,
+        # in the program's own process): not the program's
+        b = ctypes.create_unicode_buffer(64); u32.GetClassNameW(h, b, 64)
+        if p.value != os.getpid() and u32.IsWindowVisible(h) and not b.value.startswith('UAC'):   # the private desktop holds only the run's process tree (hold_image relaunches)
             out.append(h)
         return True
     u32.EnumDesktopWindows(W.HANDLE(desk), cb(f), 0)

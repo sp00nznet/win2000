@@ -54,12 +54,20 @@ if(TARGET cmd_rtm)
   target_compile_definitions(cmd_rtm PRIVATE RECOMP_TRACE=1 W2K_SYS="work/rebased-rtm" W2K_NLS="work/sys-rtm" W2K_CSD=0)
 endif()
 
-# Stage 3: winmine on its own lifted user32 + gdi32 (and kernel32, ntdll, msvcrt)
-w2k_host(ntwinmine src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c ${N32}/w32kgdi.c ${N32}/w32kuser.c)
-if(TARGET ntwinmine)
-  target_compile_definitions(ntwinmine PRIVATE RECOMP_TRACE=1 W2K_EXE="winmine.exe" W2K_EXE_W=L"winmine.exe"
-    EXE_BASE=0x01000000u W2K_SYS="work/rebased-gui" W2K_NLS="work/sys" W2K_CSD=0x0400 W2K_USER_LAYER=1 "W2K_MORE_MODS=,{\"user32.dll\",0x20300000u},{\"gdi32.dll\",0x20400000u}")
-endif()
+# Stage 3: accessories on their own lifted user32 + gdi32 (and kernel32, ntdll, msvcrt)
+function(w2k_user_host name exe)
+  w2k_host(${name} src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c ${N32}/w32kgdi.c ${N32}/w32kuser.c)
+  if(TARGET ${name})
+    target_compile_definitions(${name} PRIVATE RECOMP_TRACE=1 W2K_EXE="${exe}" W2K_EXE_W=L"${exe}"
+      EXE_BASE=0x01000000u W2K_SYS="work/rebased-gui" W2K_NLS="work/sys" W2K_CSD=0x0400 W2K_USER_LAYER=1
+      "W2K_MORE_MODS=,{\"user32.dll\",0x20300000u},{\"gdi32.dll\",0x20400000u}${ARGN}")
+  endif()
+endfunction()
+w2k_user_host(ntwinmine winmine.exe)
+w2k_user_host(ntnotepad notepad.exe)
+w2k_user_host(ntcalc calc.exe)
+w2k_user_host(ntsol sol.exe ",{\"cards.dll\",0x20500000u}")
+w2k_user_host(ntfreecell freecell.exe ",{\"cards.dll\",0x20500000u}")
 
 # Interim: winmine on its own lifted gdi32, the host's user32 (pcrecomp w32kgdi.c)
 w2k_host(ntwmgdi src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c ${N32}/w32kgdi.c)

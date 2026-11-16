@@ -500,3 +500,64 @@ elsewhere). Answered by setting the bit.
 Gaps: NtUserCallHwndParam 0x41 (once, in the dialog) is unanswered; NtUserCallHwndLock 0x4C/0x50 not
 shimmed; a guest SetWindowLong(GWL_WNDPROC) subclass is not mirrored; the
 WND's spmenu of a top-level window is not kept.
+
+### Text messages through their own callbacks
+
+KernelCallbackTable (user32 sets PEB+0x2C; 0x20321468 in this lift) has 91
+entries. Read off the routines: the copying ones start with a 0x18-byte
+capture-buffer header (+0 size, +8 pointers to fix up, +0x10 their offsets'
+offset, +0x14 nonzero when already fixed) and take { pwnd, msg, wParam } at +0x18.
+
+| Index | Routine | Layout after +0x24 |
+|---|---|---|
+| 2 | __fnDWORD | (no header) { pwnd, msg, w, l, xParam, xpfn } |
+| 7 | __fnINCNTOUTSTRING (WM_GETTEXT) | +0x24 xParam, +0x28 xpfn, +0x2C buffer, +0x30 its size in bytes; user32 calls with its own stack buffer up to 0x800 bytes, reply { result, size, the buffer } for win32k to copy from |
+| 9 | __fnINLPCREATESTRUCT | +0x24 lParam != 0, +0x28 the CREATESTRUCT inline (0x30), +0x58 xParam, +0x5C xpfn; name/class above the probe address are desktop pointers (pwnd - pSelf delta) |
+| 10 | __fnINLPDELETEITEMSTRUCT (a 0x14-byte struct inline at +0xC, no header) | |
+| 25, 26 | __fnINSTRING / __fnINSTRINGNULL (same code) | +0x24 xParam, +0x28 xpfn, +0x2C the string |
+
+wnd_thunk chooses by message (WM_CREATE/NCCREATE, WM_SETTEXT, WM_GETTEXT; the
+rest __fnDWORD). RegisterClassExA passes flags 2 (0x82 past 3.10), the W form
+0 (0x80): bit 1 is CSF_ANSIPROC, kept per class, and an ANSI class gets its
+text converted in wnd_thunk as win32k would. (None of the five accessories
+registers ANSI, so that path is unexercised.) Winmine stayed at 0.
+
+### notepad and calc on lifted user32 + gdi32
+
+| App | State | Pixels differing |
+|---|---|---|
+| notepad | start (360x775) | 0 |
+| notepad | "Hello, Windows 2000" typed into its edit (WM_CHAR) | 0 |
+| calc | start (270x267) | 0 |
+| calc | 12+3= pressed (WM_COMMAND, button IDs: digit n 0x7C+n, + 0x5C, - 0x5D, * 0x5B, / 0x5A, = 0x70); shows 15. | 0 |
+
+notepad needed only NtUserRegisterWindowMessage. calc needed:
+- **A dialog of the guest's own class keeps its procedure.** calc's main window
+  is CreateDialog with CLASS SciCalc; NtUserCallHwndParam 0x43 replaced its
+  procedure with DefDlgProcW, so calc's WndProc never ran (no WM_DRAWITEM:
+  buttons blank).
+- NtUserSetWindowPos (calc sizes itself to 270x267: 2 pixels off before),
+  GetSystemMenu, GetForegroundWindow.
+- **SERVERINFO +0x75C ahbrSystem[0x1D]**: GetSysColorBrush reads it, and
+  DrawEdge (+0x79C BTNSHADOW, +0x7AC BTNHIGHLIGHT, +0x774 WINDOWFRAME). The
+  display's white came from it. (+0xE48, a WORD, == 1 sends DrawEdge down a
+  monochrome path.)
+- **Regions** (DrawText saves the clip): NtGdiCreateRectRgn, whose handle
+  entry needs a RGNATTR at +0xC (gdi32 writes the rectangle there itself, flags
+  0x30), GetRandomRgn, IntersectClipRect, ExtSelectClipRgn.
+- **The TEB batch is flushed when a callback returns**, as win32k does; and
+  batch commands 1 PolyPatBlt { rop, mode, count, ?, colour, ?, ?, then count
+  x { x, y, cx, cy, brush } at +0x24 } (DrawEdge's four edges) and 8
+  DeleteObject { handle }. Flushing without command 1 left calc blank.
+
+Harness: Windows 11 puts UAC input indicator windows (UAC_InputIndicator*,
+in the program's own process) on the private desktop; hiddenrun took one for
+the top window, so the Custom-dialog typing went nowhere while both builds
+still compared equal (stale shots). Fixed, and interact.py drops shots older
+than the run. Single runs still flake occasionally (an inactive menu bar after
+Intermediate, 409 pixels); a rerun is 0.
+
+sol and freecell are lifted on user32 (`ntsol`, `ntfreecell`) but cards.dll's
+bitmaps go through lifted user32's LoadBitmap: NtGdiCreateDIBitmapInternal,
+NtGdiGetDCforBitmap, then NtUserGetDCEx/GetWindowDC, unanswered. sol exits
+at once; freecell shows its frame.
