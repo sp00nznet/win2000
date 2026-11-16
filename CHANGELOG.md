@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Added
+- No host DLL but advapi32 in any guest process: run_explorer.sh's host-module check covers
+  every process of the run (launched children from their first line). Windows 2000's
+  imagehlp (rundll32), and for the accessories (tools/lift_accessories.sh, on the shell's
+  module set) shell32, comdlg32, winmm, winspool, olecli32/olesvr32, nddeapi; cmd, find and
+  more on lifted user32/gdi32 (ulib moved to 0x22300000). lift.py re-catalogues a rebased
+  module. Message boxes lay out (SERVERINFO's message font, button texts); Display opens
+  (one display adapter, a Windows 2000 mode list) and its settings stay in the guest; a
+  double-click on a Control Panel applet opens it (menu items copied with every MIIM bit);
+  Date/Time names the zone (Windows 2000's Time Zones in the box).
 - Pipes in the lifted cmd (`echo hi | find "hi"`, `| more`): every nthost build's CreateProcess
   is the launch path (build\nt<name>.exe, else build\<name>.exe) with the guest's handles;
   find.exe and more.com lifted on lifted ulib.dll. Start -> Programs -> Accessories from the

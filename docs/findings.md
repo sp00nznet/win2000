@@ -2218,3 +2218,80 @@ Gaps / next:
 - `start` (CREATE_NEW_CONSOLE): a new console window on the virtual screen
   would need a guest-drawn console window (conhost is the host's): not cheap;
   the child still runs in the launcher's console.
+
+### No host DLL in any guest process; message boxes; Display; the Control Panel double-click (handoff)
+
+pcrecomp w2k 1935e5d. shots/exp (local): dp16_43.png
+(Display Properties, Settings: 800 by 600, Apply refused), dp12_37.png (the
+message box laid out: Display's old "driver" warning), cpf_37.png (Control
+Panel, double-click on Date/Time: opens in explorer, tabs, "Current time
+zone: Pacific Standard Time"), s_*.png (the strict-check scenarios).
+
+**The host-module check covers every process.** run_explorer.sh no longer
+skips a launched program's startup lines: any `HOST DLL in the guest` but
+advapi32 fails the run. It then found, besides imagehlp in ntrundll32:
+winmine (shell32, winmm), notepad (comdlg32, shell32, winspool), cmd (user32),
+find/more (user32, through ulib). All lifted now:
+- imagehlp (Windows 2000's, 0x21D00000) in ntrundll32.
+- tools/lift_accessories.sh: the nine accessories on work/rebased-shell with
+  the shell's module set plus winmm 0x21E00000, winspool.drv 0x21F00000,
+  olecli32 0x22000000, olesvr32 0x22100000, nddeapi 0x22200000 (W2K_ACC_MODS
+  in CMakeLists). cmd, find, more on lifted user32/gdi32 (W2K_USER_LAYER);
+  ulib re-based to 0x22300000.
+- lift.py re-catalogues a module whose base moved: ulib's old catalogue
+  (0x20300000) lifted 0 functions silently (more: ICALL 0x2230D358).
+Scenarios (work/scen.sh, all with the strict check): desktop, Run winmine,
+Run notepad, Run `cmd /k echo hi | find "hi"`, Run rundll32 timedate / main /
+main,@1 / desk, My Computer, Control Panel double-click on Date/Time and on
+Display: all PASS. Delay-loads (winspool's ole32/netapi32, mfc42u's wininet,
+winmm's drivers) are not lifted; reaching one fails the check (as it should).
+
+**Message boxes** (pcrecomp w32kuser.c server_info): SoftModalMessageBox reads
+SERVERINFO +0x808/+0x80C cxMsgFontChar/cyMsgFontChar, +0x854/+0x858
+hCaptionFont/hMsgFont, +0x1D8 wMaxBtnSize, +0x1DC MBStrings[11] (0x28 each:
+szName[16], uID, uStr). All were 0 (16x39). The fonts must be guest GDI
+handles: server_info runs before gdi32's table exists, so msg_fonts() maps
+them on a later win32k call (a host handle made the template's 0x7FFF font
+GetObjectW fail: a garbage LOGFONT, a 16115-pixel dialog). PlayEventSound
+(CallOneParam 0x25) answered silent.
+
+**Display** (desk.cpl): "configuration parameters ... invalid" was a mode with
+fields beyond BITSPERPEL|PELSWIDTH|PELSHEIGHT|DISPLAYFLAGS|DISPLAYFREQUENCY
+(desk 0x214128ED); then "driver can not be used" was the host's second,
+detached adapter with no modes. On a virtual screen the guest now sees one
+adapter (the host's primary) and a Windows 2000 list (its size, 640x480 ..
+1280x1024, host depth, 60 Hz). ChangeDisplaySettings stays refused but
+CDS_TEST. hostsettings.py before/after a Display run: unchanged. The posted
+click on the Screen area slider did not move it (Apply never enabled), so the
+refusal path itself was not reached this time.
+
+**The Control Panel double-click.** CDefFolderMenu::QueryContextMenu with
+CMF_DEFAULTONLY (shell32 0x20A23470) deletes item 0 when GetMenuState has
+MF_SEPARATOR: GetMenuState answered -1, the merged menu was empty on the
+host. Shell_MergeMenus copies items with fMask 0x1FF (MIIM_TYPE with
+FTYPE/STRING/BITMAP): Windows 2000 took it, Windows 11 answers
+ERROR_INVALID_PARAMETER. NtUserThunkedMenuItemInfo drops MIIM_TYPE when the
+newer bits are there (and logs a failed insert). Date/Time and Display open
+in explorer (InProcCPLs), with their tab strips.
+
+**Time zone.** NtQuerySystemInformation(44) names the zone with the host's
+resolved names (Windows 11's kernel gives `@tzres.dll,-212`); reginst.py
+seeds Windows 2000's Time Zones (HIVESFT.INF) and regbox32 answers Time
+Zones and Control Panel's NameSpace (HKLM and HKCU) from the box alone.
+
+interact (all 8, after the runtime changes): winmine, notepad, calc,
+packager 0; freecell 0 / 4790 between runs (timing); sol deal 6593 (its
+last pile's top card still face down at the shot), deck click 0; mspaint
+6112 and wordpad 5555/6148: the lower panes sit 2 px lower. These two (and
+probably sol) now load Windows 2000's comctl32 (through shell32) where the
+stage 1 baseline has the host's: the status bar's height. Not yet checked
+which way is Windows 2000's.
+
+Gaps / next:
+- The two nameless folders in Control Panel are not from any NameSpace key
+  (regtrace: none read after the box-only change); find their source.
+- Keyboard's Input Locales asks for intl.cpl: Windows 2000's imports
+  setupapi, syssetup, userenv (none lifted; the host's are refused).
+- Mouse/Keyboard tab strips through rundll32 (in-proc ones draw theirs).
+- The interact baselines for mspaint/wordpad/sol (above).
+- Display's Apply path with a moved slider (keyboard into the trackbar).

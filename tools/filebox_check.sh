@@ -23,13 +23,13 @@ run 'echo x> G:\recomp\pc\win2000\build\fbtest_evil.txt' >/dev/null
 [ ! -e build/fbtest_evil.txt ] && ok "a write to the host's G:\\...\\build: not written" || { rm -f build/fbtest_evil.txt; bad "wrote into build"; }
 L=$(run 'dir /b C:\Windows\system32')
 echo "$L" | grep -qi kernel32 && bad "host system32 listed" || ok "C:\Windows\system32: the box's, not the host's"
-L=$(run 'dir /b G:\recomp\pc\win2000\work\rebased')
+L=$(run 'dir /b G:\recomp\pc\win2000\work\rebased-shell')
 echo "$L" | grep -qi kernel32 && bad "loader directory listed" || ok "loader directory: files only, not listed"
 L=$(run 'ver'); echo "$L" | grep -q "Windows 2000" && ok "the loader still maps the lifted modules (ver)" || bad "ver: $L"
 L=$(run 'dir /b C:\ | more' | grep -v '^$'); [ "$(echo "$L" | sort | tr '\n' ' ')" = "WINNT inbox_dir inbox_marker.txt new.txt " ] && ok "a pipe to the lifted more (child runners in the box): $(echo $L)" || bad "dir | more: $L"
 L=$(run 'dir C:\'); echo "$L" | grep -q "2,684,354,560 bytes free" && ok "free space is the box's (2.5 GB of 4 GB)" || bad "free space: $(echo "$L" | tail -1)"
 L=$(run 'cd C:\inbox_dir & set FBVAR=guestval & cmd /c "cd & echo %FBVAR%"' | grep -v '^ *$' | tr '\n' ' ')
 [ "$(echo $L)" = 'C:\inbox_dir guestval' ] && ok "a child cmd gets the guest's directory and environment: $L" || bad "child env/cwd: $L"
-run 'cd /d G:\recomp\pc\win2000\work\rebased & echo x> fbtest_evil.txt' >/dev/null
-[ ! -e work/rebased/fbtest_evil.txt ] && ok "a write after cd into a loader directory: not written" || { rm -f work/rebased/fbtest_evil.txt; bad "wrote into work/rebased"; }
+run 'cd /d G:\recomp\pc\win2000\work\rebased-shell & echo x> fbtest_evil.txt' >/dev/null
+[ ! -e work/rebased-shell/fbtest_evil.txt ] && ok "a write after cd into a loader directory: not written" || { rm -f work/rebased-shell/fbtest_evil.txt; bad "wrote into work/rebased-shell"; }
 exit $fail

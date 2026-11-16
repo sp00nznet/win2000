@@ -46,6 +46,11 @@ def lines(inf, mod):
         # host's is never enumerated (Win11's 33 desktop items were nameless folders on the desktop)
         elif len(f) >= 2 and f[0].upper() == 'HKLM' and re.search(r'\\NameSpace\\', f[1], re.I):
             yield f + [''] * (5 - len(f))
+        # the time zones (Date/Time's list and its current zone's name): Windows 2000's, the box's
+        # whole (pcrecomp regbox32.c; Windows 11's Display values are @tzres.dll MUI strings).
+        # ponytail: IndexMapping (a multi-string) left out
+        elif len(f) >= 3 and f[0].upper() == 'HKLM' and re.search(r'\\Time Zones', f[1], re.I) and f[2] != 'IndexMapping':
+            yield f + [''] * (5 - len(f))
 
 def hive_items(iso, dlls):
     """HIVESFT's Desktop\\NameSpace items served by one of DLLS, and HIVECLS's lines for those
@@ -63,7 +68,8 @@ def hive_items(iso, dlls):
     # (the host's Folder\shell\open has no arguments: every folder opened as My Documents)
     # and shortcuts and programs (lnkfile's link handler): the box answers a class it has whole (pcrecomp regbox32.c)
     shell = [x for x in cls if x[1].split('\\')[0].upper() in ('FOLDER', 'DIRECTORY', 'DRIVE', 'LNKFILE', '.LNK', 'EXEFILE', '.EXE')]
-    return ns + [x for x in cls if '\\' in x[1] and x[1].split('\\')[1].upper() in want] + shell
+    tz = [x for x in lines(rd('HIVESFT.INF'), '') if re.search(r'\\Time Zones', x[1], re.I)]
+    return ns + tz + [x for x in cls if '\\' in x[1] and x[1].split('\\')[1].upper() in want] + shell
 
 def main():
     box, d, dlls = sys.argv[1], sys.argv[2], sys.argv[3:]

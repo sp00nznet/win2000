@@ -44,7 +44,10 @@ def main():
         # work/seeds/<file>.json: functions a run found unresolved (ICALL), re-catalogued when newer
         seeds = os.path.join(ROOT, 'work', 'seeds', stem + '.json')
         seeds = seeds if os.path.exists(seeds) else None
-        if not os.path.exists(cat) or (seeds and os.path.getmtime(seeds) > os.path.getmtime(cat)):
+        # a module rebased since its catalog (ulib moved off user32's base: 0 functions lifted, silently)
+        moved = os.path.exists(cat) and json.load(open(cat)).get('image_base') != \
+            __import__('pefile').PE(m, fast_load=True).OPTIONAL_HEADER.ImageBase
+        if moved or not os.path.exists(cat) or (seeds and os.path.getmtime(seeds) > os.path.getmtime(cat)):
             with open(cat[:-15] + '.catalog.log', 'w') as log:
                 if subprocess.run([sys.executable, os.path.join(TOOLS, 'disasm', 'disasm32.py'), m, '-o', cat]
                                   + (['--seed-functions', seeds] if seeds else []),
