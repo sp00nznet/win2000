@@ -599,6 +599,10 @@ ruler and RichEdit20W are created and the frame is shown. Then riched20
 crashes in RtlAllocateHeap (LocalAlloc from riched20 0x2070162C) while
 handling EM_SETOLECALLBACK (0x446): the heap is already corrupt. No shot yet.
 
+Regression after the TLS change (same scripts as Stage 4): calc 5 / 8
+1,486 / 1,504, winmine int 4, 5, 8 0, sol 8 / 10 1 / 1, freecell 8 / 11
+15,463 / 15,945 pixels differ, all as before.
+
 ### Next
 
 1. wordpad: find the heap corruption (an `NtAllocateVirtualMemory` /
