@@ -122,6 +122,8 @@ def main():
     ap.add_argument('--dlgcommand', action='append', default=[], help='ID@T: WM_COMMAND ID posted to the top window')
     ap.add_argument('--drag', action='append', default=[], help='X1,Y1,X2,Y2@T: a left-button drag in the main '
                     'window client coordinates, posted to the deepest child under X1,Y1')
+    ap.add_argument('--dblclick', action='append', default=[], help='X,Y@T: a double click (down, up, '
+                    'WM_LBUTTONDBLCLK, up: what the system makes of two real clicks) to the deepest child under X,Y')
     ap.add_argument('--childpost', action='append', default=[], help='X,Y:MSG,WPARAM,LPARAM@T: a message posted '
                     'to the deepest child under X,Y of the main window; CLASS:MSG,... to its child of that class')
     ap.add_argument('--settle', action='store_true', help='event-driven: each step waits until the previous one '
@@ -186,6 +188,10 @@ def send_input(a, p, desk, kind, what):
             lp = ((y & 0xFFFF) << 16) | (x & 0xFFFF)
             u32.PostMessageW(h, 0x0201 if i == 0 else 0x0200, 1, lp)   # WM_LBUTTONDOWN, then WM_MOUSEMOVE
         u32.PostMessageW(h, 0x0202, 0, lp)                              # WM_LBUTTONUP
+    elif main_w and kind == 'dblclick':
+        h, pt = deepest(main_w, *map(int, what.split(',')))
+        lp = ((pt.y & 0xFFFF) << 16) | (pt.x & 0xFFFF)
+        for m, wp in ((0x0201, 1), (0x0202, 0), (0x0203, 1), (0x0202, 0)): u32.PostMessageW(h, m, wp, lp)
     elif ws and kind == 'type':
         cid, text = what.split('=', 1)
         u32.GetDlgItem.restype = W.HWND
@@ -289,7 +295,7 @@ def timeline(a, p, desk, t0):
     u32.SetThreadDesktop(W.HANDLE(desk))
     ev = sorted([(float(c.split('@')[1]), 1, k, c.split('@')[0]) for opt, k in
                  ((a.click, 'click'), (a.command, 'cmd'), (a.post, 'post'), (a.type, 'type'),
-                  (a.dlgcommand, 'dlgcmd'), (a.drag, 'drag'), (a.childpost, 'childpost')) for c in opt] +
+                  (a.dlgcommand, 'dlgcmd'), (a.drag, 'drag'), (a.dblclick, 'dblclick'), (a.childpost, 'childpost')) for c in opt] +
                 [(t, 0, 'shot', '') for t in a.shot] +
                 ([(a.end_at, 2, 'end', '')] if a.end_at is not None else []))
     for t, _, kind, what in ev:

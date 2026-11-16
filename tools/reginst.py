@@ -67,6 +67,7 @@ def main():
         if dll == dlls[-1]:
             items += hive_items(os.path.join(os.path.dirname(__file__), '..', 'work', 'iso', 'I386'), [x.lower() for x in dlls])
         for hive, key, name, flags, val, *data in items:
+            if flags and not re.match(r'(?i)^(0x)?[0-9a-f]+$', flags): flags, val = '', flags   # mydocs: HKLM,key,,"My Documents" (no flags field)
             fl = int(flags, 0) if flags else 0
             # %SystemRoot%\System32\x.dll or a bare x.dll is the lifted module in DIR, never the host's
             val = re.sub(r'(?i)^(%SystemRoot%\\System32\\)?(\w+\.dll)',

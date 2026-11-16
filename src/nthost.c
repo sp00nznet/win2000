@@ -76,6 +76,11 @@ static LONG CALLBACK crash(EXCEPTION_POINTERS* ep) {
     fprintf(stderr, "  eax=%08X ecx=%08X edx=%08X ebx=%08X esp=%08X ebp=%08X esi=%08X edi=%08X\n",
             g_eax, g_ecx, g_edx, g_ebx, g_esp, g_ebp, g_esi, g_edi);
     native32_dump_icalls(12);
+    fprintf(stderr, "  pid %lu; guest stack code addresses:", GetCurrentProcessId());
+    for (int i = 0, k = 0; i < 2048 && k < 40; i++)   /* the callers (return addresses, some stale) */
+        if (!IsBadReadPtr((void*)(uintptr_t)(g_esp + 4 * i), 4) && native32_in_guest(MEM32(g_esp + 4 * i)))
+            fprintf(stderr, " %08X", MEM32(g_esp + 4 * i)), k++;
+    fprintf(stderr, "\n");
     recomp_dump_trace("fault");
     recomp_trace_flush();
     fflush(stderr);

@@ -1881,3 +1881,71 @@ Not started: mydocs.dll (needs adding to tools/lift_explorer.sh and a full
 relift), My Computer's icon (generic icon: shell32 index lookup).
 Next: a folder window opened by double-click (why the listview's DBLCLK does
 nothing), then the launched program's active frame, then mydocs.dll.
+
+### My Documents on the desktop; a double-click reaches the folder window (handoff)
+
+pcrecomp f2f5b65 (w2k). shots/exp (local): w5_19.png (desktop with My
+Documents, the launched winmine, its taskbar button), d4_17.png (before the
+GetShellWindow fix: the double-click started a second explorer that became a
+second shell).
+
+- **mydocs.dll** lifted (tools/lift_explorer.sh, CMakeLists module list at
+  0x21600000, reginst.py; its INF has `HKLM,key,,"My Documents"` with no flags
+  field, now read as the value). My Documents shows on the desktop, first;
+  My Computer moved to (38,106).
+- **Double-click.** hiddenrun `--dblclick X,Y@T` posts down/up/DBLCLK/up (a
+  posted click never becomes WM_LBUTTONDBLCLK). The listview then asked for
+  the item's context menu and NtUserSetMenuDefaultItem was unanswered: no
+  default verb, nothing opened. Answered (host + menu_sync; GetMenuDefaultItem
+  is client-side).
+- **The open verb starts explorer.exe** (Folder's ddeexec needs DDE, which the
+  guest does not have; shell32 falls back to the command): `[launch] explorer
+  -> build\ntexplorer.exe`. The second process read GetShellWindow (client-side,
+  DESKTOPINFO +0x50) as NULL and became a second shell (its own tray/desktop
+  thread; reported the first explorer's tray and Progman as tasks). SetShellWindowEx
+  now also puts the shell HWND on the screen window (prop `pcrecomp.shell`);
+  every process fills +0x50 from it. The second explorer then hands the
+  folder to the first (WaitForInputIdle, AllowSetForegroundWindow 0x18 now 1)
+  and exits.
+- **The first explorer dies building the folder window.** Unlifted targets
+  seeded and relifted (browseui 20D0EF78/20D10970, ole32 21006C14, shlwapi
+  20914526). Runs alternate between (a) an RPC_S_SERVER_UNAVAILABLE (0x6BA)
+  raised unhandled from rpcrt4 (NdrClientCall path; the epmapper connect is
+  refused by design) and (b) a NULL path into user32!PrivateExtractIconsW from
+  shell32 (via shdocvw, the browser frame's icon), right after SearchPathW /
+  PathParseIconLocationW. Neither traced to its caller yet; both on the
+  explorer process (pid printed now). The unhandled-exception report now lists
+  guest code addresses on the raiser's stack, nthost's fault report too.
+  `--calltrace` per thread + tools/calls.py finds the call sequence (work/ct_d.txt).
+- setupapi.dll and linkinfo.dll (host) were proxied into the guest for the
+  folder window: now refused like mpr.dll (`[guard] ... network/device/volume
+  DLL: not mapped`). Next: lift Windows 2000's linkinfo (small) if shell32
+  needs it to get past (b).
+- **No folder window yet, so no C: view was opened**: the file-sandbox mapping
+  of C: is still to do. Nothing in these runs listed a drive.
+
+**Launched program's frame (not solved, reverted).** On WM_NCACTIVATE(FALSE)
+to the screen's topmost captioned window that is its thread's active window,
+tried: wParam forced TRUE to the guest, plus host DefWindowProc(NCACTIVATE,
+TRUE); plus SetForegroundWindow on the private desktop only (guarded by
+OpenInputDesktop name != thread desktop name). Hit every time (logged), the
+caption and menu bar stay grey: the host's classic frame of a re-parented
+top-level seems to follow the root window's (the screen's) activation, not
+the queue. Next: draw the caption ourselves (DrawCaption DC_ACTIVE in
+WM_NCPAINT) or activate the screen window itself.
+
+**Black selected icon: not started** (a NATIVE32_SYSCALLS run is too slow for
+the click to land; trace with --calltrace on ImageList_DrawIndirect instead).
+
+interact (all 8, after the runtime changes): every state 0; first pass had
+winmine click 86 / menu open size and mspaint missing (the build was still
+linking), rerun 0.
+
+Registry: work/regsnap/before7.txt / after7.txt. Control Panel and both
+Policies unchanged. Explorer differs in RecentDocs (Win11-format entries:
+shots/exp, m20_8.png, other host files: the host shell), Substrate,
+UserAssist, GlobalAssocChangedCounter: the host's own. The guest wrote only
+to its box.
+
+Next: the folder window: trace (a)/(b) with --calltrace from the double-click,
+then map C: to a sandbox root before the first drive view.

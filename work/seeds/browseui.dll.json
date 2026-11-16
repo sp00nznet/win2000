@@ -3,5 +3,15 @@
   "address": 550549568,
   "address_hex": "0x20D0B840",
   "note": "indirect call observed at runtime, from 0x20D06F91"
+ },
+ {
+  "address": 550563704,
+  "address_hex": "0x20D0EF78",
+  "note": "indirect call observed at runtime, from 0x2090BD88"
+ },
+ {
+  "address": 550570352,
+  "address_hex": "0x20D10970",
+  "note": "indirect call observed at runtime, from 0x20D0D760"
  }
 ]
