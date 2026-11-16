@@ -24,7 +24,8 @@ def reginst(path):
     return ''
 
 def lines(inf, mod):
-    sec, strs = {}, {'_SYS_MOD_PATH': mod, '_MOD_PATH': mod}
+    sec, strs = {}, {'_SYS_MOD_PATH': mod, '_MOD_PATH': mod,
+                 '11': os.path.dirname(mod)}   # LDID 11, the system directory (LocalizedString's @%11%\shell32.dll,-8964): the lifted modules' own
     cur = None
     for l in inf.splitlines():
         l = l.split(';')[0].strip() if not l.strip().startswith('"') else l.strip()
