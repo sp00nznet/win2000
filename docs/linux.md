@@ -412,3 +412,85 @@ a second thread yet.
   waits. calc is the first taker.
 - mspaint and wordpad (comctl32, riched20).
 - Merge w32klayout into the Windows host when `pcrecomp-w2k` is quiet.
+
+## Stage 5 on Linux: caret, accelerators, TrueType, menu keys, threads
+
+**Done** (pcrecomp `w32kposix.c` and `ntposix.c`, branch `w2k-linux`):
+
+- **Caret.** NtUserCreateCaret, ShowCaret, HideCaret, SetCaretPos
+  (CallTwoParam 0x5E) and DestroyCaret (CallNoParam 2) keep one caret. It
+  is inverted over the live window each time it is presented, blinking at
+  530 ms, and is never drawn into the framebuffer, so painting never has to
+  hide it. Shots leave it out (the Windows build's shots do too).
+- **Accelerators.** NtUserCreateAcceleratorTable copies the ACCEL table
+  (6-byte entries). NtUserTranslateAccelerator matches WM_KEYDOWN /
+  WM_SYSKEYDOWN against FVIRTKEY entries with Shift/Ctrl/Alt read from the
+  keys down, and WM_CHAR against the others. It sends WM_COMMAND with
+  HIWORD 1. F2 deals again in sol and F5 puts the time and date into
+  notepad. Alt+letter still opens the menu first.
+- **TrueType.** w32kposix reads Windows 2000's own .ttf files (head, hhea,
+  OS/2, cmap 3/1 format 4, loca, glyf, hmtx, name) and scan-converts the
+  outlines itself: quadratics flattened, a pixel on when its centre is
+  inside (non-zero winding), monochrome as Windows 2000 draws without font
+  smoothing. Each face and size is made into an fnt_t of cp1252 glyphs, so
+  the bitmap text path, metrics and widths need no change. ppem is
+  -lfHeight, or lfHeight scaled by unitsPerEm / (winAscent + winDescent).
+  Bitmap faces still win when the .fon has the face (MS Sans Serif).
+  notepad's Edit is now Lucida Console from lucon.ttf. Put the faces in
+  work/fonts: `expand work\iso\I386\LUCON.TT_ work\fonts\lucon.ttf` (and
+  TAHOMA.TT_), and linux_push.sh copies them.
+- **Menu keys.** With a menu down: Up/Down move the highlight (skipping
+  separators), Left/Right drop the next bar item's menu down, Enter chooses,
+  Esc closes and a mnemonic letter chooses. The mouse hot-tracks. Menu
+  items given as MFT_STRING with no string are separators, as win32k makes
+  them (user32 loads notepad's separators that way, mask 0x103), and are
+  drawn as the etched line.
+- **Threads.** NtCreateThread, NtResumeThread and NtTerminateThread run a
+  guest thread on a host pthread. One big lock: the thread holding it runs
+  guest code. The register file is global, so a thread that gives the lock
+  up keeps its registers on its own host stack (ntp_yield). Waits
+  (NtWaitForSingle/MultipleObjects, NtDelayExecution) poll every 1 ms while
+  other threads exist, and w32kposix's idle loop yields. A thread object is
+  signalled when its thread ends. The new TEB is a copy of the first
+  thread's (USER's thread info with it) with its own stack, id and self
+  pointer. calc's worker thread (BaseThreadStartThunk, start 0x010045F7)
+  now runs; calc's result is unchanged.
+
+| state | pixels that differ |
+|---|---|
+| calc start / 12+3= (`calc` 5, 8) | 1,486 / 1,504 of 52,832 (as before: ClearType glyphs on the Windows side), with the worker thread running |
+| sol deal (`sol` 8) | 1 of 224,640 (as before) |
+| winmine `int` 4, 5, 8 | 0 (as before) |
+| notepad typed (`np` 11) | still not pixel-comparable: the Windows build's text is the host's ClearType Lucida Console. Ours is the same face and advance (8 px at -13), drawn mono and unhinted |
+
+Live, under Xvfb with xdotool (`tools/linux_live.sh`): the caret blinks
+after `abc` in notepad; F5 inserts the time; Alt+E, Down, Down highlights
+Cut past the separator; Right drops Format down; Alt+E then `a` selects
+all; a click on File and a move hot-tracks Open. In sol, F2 deals anew.
+
+### Gaps
+
+- TrueType: no hinting (no bytecode interpreter), so stems can land one
+  pixel off Windows 2000's hinted output; no embedded bitmaps (lucon.ttf
+  has EBDT strikes for 5-8 ppem only); composites keep offsets but not
+  their scale; glyphs are cut at their advance; no bold or italic face
+  files (bold is still overstruck).
+- Threads: waits poll; one message queue for all threads (a second thread
+  calling GetMessage would take the first one's messages); MMX/SSE and the
+  x87 ring are not switched (a syscall is never reached mid-expression).
+- The scripted `--type` posts WM_CHAR and notepad shows `windows` where the
+  text has `Windows` (seen in np 11; not chased).
+- Disabled menu items take the highlight (as Windows does) but Enter on one
+  does nothing.
+
+### Next
+
+- mspaint and wordpad. Neither imports comctl32 (MFC loads it), but both
+  import ole32, shell32, comdlg32, advapi32 and (mspaint) imm32, which
+  nthost_linux.c needs stubs for, and mfc42u (0x20600000) and riched20
+  (0x20700000) need mapping. comctl32 itself is lifted in the ntexplorer
+  set; it has to be in the mspaint/wordpad sets for MFC's toolbar and
+  status bar.
+- A TrueType bytecode interpreter (fpgm, prep, glyph programs) so
+  notepad's text can be compared pixel for pixel with a Windows 2000 VM.
+- Per-thread message queues when a second thread makes a window.
