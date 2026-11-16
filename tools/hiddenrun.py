@@ -197,6 +197,25 @@ def main():
     u32.CloseDesktop(desk)
 
 
+class GUITHREADINFO(ctypes.Structure):
+    _fields_ = [('cbSize', W.DWORD), ('flags', W.DWORD), ('hwndActive', W.HWND), ('hwndFocus', W.HWND),
+                ('hwndCapture', W.HWND), ('hwndMenuOwner', W.HWND), ('hwndMoveSize', W.HWND),
+                ('hwndCaret', W.HWND), ('rcCaret', W.RECT)]
+
+
+def active_of(h):
+    """The active window of h's thread (any desktop)."""
+    g = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
+    tid = u32.GetWindowThreadProcessId(h, None)
+    return g.hwndActive if u32.GetGUIThreadInfo(tid, ctypes.byref(g)) else None
+
+
+def in_menu(h):
+    """h's thread is in menu mode (GUI_INMENUMODE)."""
+    g = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
+    return bool(u32.GetGUIThreadInfo(u32.GetWindowThreadProcessId(h, None), ctypes.byref(g)) and g.flags & 4)
+
+
 def shots(a, p, desk, t0):
     # GDI reads across desktops come back black: capture from a thread that
     # has joined the hidden desktop.
@@ -207,8 +226,18 @@ def shots(a, p, desk, t0):
         hs = [a.preview_hwnd] if a.preview else windows_of(p.pid, desk)
         # the top window active, so its menu bar and caption are drawn active
         # whatever the run's timing left (an inactive menu bar: a flake)
-        if hs and not a.preview and u32.GetForegroundWindow() != hs[0]:
-            u32.SetForegroundWindow(hs[0]); time.sleep(0.3)
+        # (GetForegroundWindow answers for the input desktop only, so it never
+        # matched here; the window's thread says whether it is active. On a
+        # loaded machine wait for the activation, then for the repaint.)
+        # An open menu (its thread in menu mode) is left alone: activating
+        # closes it.
+        if hs and not a.preview and active_of(hs[0]) != hs[0] and not in_menu(hs[0]):
+            u32.SetForegroundWindow(hs[0])
+            for _ in range(20):
+                if active_of(hs[0]) == hs[0]: break
+                time.sleep(0.05)
+            time.sleep(0.3)
+            hs = windows_of(p.pid, desk)
         shots = [grab(h) for h in hs]
         shots = [s for s in shots if s[0]]
         if os.environ.get('HIDDENRUN_RECTS'):

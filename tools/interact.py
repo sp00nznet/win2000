@@ -51,7 +51,8 @@ for app, run, steps in RUNS:
             cmd += ['--shot', str(t)]
         cmd += extra + ['--out', os.path.join(ROOT, 'shots', '%s_%s' % (run, build)), '--',
                         os.path.join(ROOT, 'build', build + '.exe'), '--mute', '--watchdog', str(int(max(shots)) + 1)]
-        subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True)
+        r = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
+        open(os.path.join(ROOT, "shots", "%s_%s.out" % (run, build)), "w").write(r.stdout + r.stderr)   # hiddenrun's timeline, for a missing shot
 for app, name, t, run in ((app, n, t, r) for app, r, steps in RUNS for n, t, _ in steps):
     a, b = (os.path.join(ROOT, 'shots', '%s_%s_%d.png' % (run, k, int(t))) for k in (app, 'nt' + app))
     for f in (a, b):
