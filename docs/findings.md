@@ -1374,3 +1374,65 @@ W2K_FIXED_TICK, which already freezes the lifted build's clock but not the
 host's) instead of firing at a fixed second, with --secs as an overall
 limit only. interact.py's step lists keep their order; the times become
 upper bounds.
+
+### The event-driven timeline; the desktop's names (handoff)
+
+**hiddenrun --settle (b11976d).** Inputs and shots run as one ordered list
+on a thread joined to the hidden desktop. Before each step: the process's
+first input idle (WaitForInputIdle), every window answers a sent WM_NULL
+(SMTO_BLOCK|ABORTIFHUNG, 250 ms), no update region on any window or visible
+child, and the composite capture equals one taken at least --hold s earlier.
+The step's time (x --scale) is only an upper limit; the timeline prints
+"settled" or "LIMIT" per step. Two things found on the way:
+- PrintWindow sometimes reads a window half-drawn (winmine's grid, the
+  host packager's left pane: 39 of 55 reads full, the rest without the
+  pane). A capture that differs and comes back no longer restarts the wait,
+  and the shot is the capture seen most often since the windows went idle.
+- The lifted calc paints its buttons in bursts more than 0.5 s apart on a
+  busy machine: interact uses --hold 1.5.
+sol: the host build's clock is not frozen; its status bar (bottom 26 rows,
+"Score/Time") is left out of the stability check (--still-crop) and of
+interact's comparison. winmine's int run hits LIMIT after the click (its
+counter ticks every second) in both builds alike and still matches.
+
+Two full runs, every state 0 except:
+
+| state | run 1 | run 2 |
+|---|---|---|
+| sol deck click | 6593 | 6593 |
+| freecell deal / card to cell | 4790 / 4790 | 0 / 0 |
+
+- sol 6593 is now deterministic and real, but in the **stage 1 (host)**
+  build: its 7th pile's top card stays face down (seen still face down at
+  20 s with Time: 16), while the lifted build turns it after the deck click.
+  Windows 2000's sol deals that card face up: the lifted build is right.
+  Not fixed: find what the stage-1 build misses after the deal animation.
+- freecell 4790: the known flake (once in two, as before).
+
+**Desktop names (b3a3ec6).** "@%1..." was Windows 2000's own
+LocalizedString from shell32's INF, `@%11%\shell32.dll,-8964`: reginst left
+LDID 11 unexpanded. It is now the lifted modules' directory; the desktop
+shows My Computer, My Network Places, Recycle Bin, My Documents
+(shots/exp/s14_22.png).
+
+**Icons (pcrecomp 68b921f).** NtUserDrawIconEx is answered (the host draws
+its icon into the host DC). The icon cache fills (98 GetIconInfo, 196
+DrawIconEx, the image lists' 32x32 and 16x16 BitBlts), and LVM_SETIMAGELIST
+reaches the desktop listview (wparam 0 and 1), but shots/exp/s15_22.png is
+unchanged: no icons, and each label sits at the item's top (rows 44 px
+apart, columns 88 px), as if the listview's icon height were 0. Next: ask
+the listview (LVM_GETITEMRECT LVIR_ICON, LVM_GETIMAGELIST,
+ImageList_GetIconSize on 03FF40B0) whether its image list has a size, and
+check the listview's icon spacing (SM_CXICONSPACING from SERVERINFO on a
+200% DPI host: AppliedDPI 0xC0).
+
+Registry snapshot (HKCU\Control Panel, CurrentVersion\Explorer, Policies)
+before the first explorer run and after the last: one change, Win11's own
+SessionInfo\1\ApplicationViewManagement\W32:000000000177225A removed (the
+host shell's per-window record for a host window that closed; the guest's
+writes go to its box). No other change.
+
+Next: the icons (above), the background (Control Panel\Colors Background
+is the host's "0 0 0"; seed the box with Windows 2000's 58 110 165 if the
+emulated win32k reads it), the taskbar (NtUserSetWindowRgn still
+unanswered), the Start menu, Run -> winmine.
