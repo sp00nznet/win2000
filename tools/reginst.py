@@ -8,8 +8,9 @@ is read, and its HKCR CLSID\\ and AppID\\ lines are written under
 HKCU\\Software\\pcrecomp\\BOX\\HKLM\\SOFTWARE\\Classes: with a lifted ole32
 only the box answers those keys (pcrecomp regbox32.c), never the host's.
 The server path (%_SYS_MOD_PATH%) is the DLL in DIR, a lifted module's name.
-ponytail: HKCR class lines only; the INFs' HKLM extras (approved shell
-extensions, ShellCompatibility) are left out until something asks for them.
+Also the INFs' HKLM ...\\NameSpace lines (the desktop's and My Computer's items).
+ponytail: the other HKLM extras (approved shell extensions,
+ShellCompatibility) are left out until something asks for them.
 """
 import csv, os, re, sys, winreg
 import pefile
@@ -39,6 +40,10 @@ def lines(inf, mod):
         f = [x.strip() for x in next(csv.reader([sub(l)], skipinitialspace=True))]
         if len(f) >= 2 and f[0].upper() == 'HKCR' and re.match(r'(CLSID|AppID)\\', f[1], re.I):
             yield f + [''] * (5 - len(f))
+        # the shell's namespaces (Desktop, MyComputer, ...\NameSpace): with the box's own key the
+        # host's is never enumerated (Win11's 33 desktop items were nameless folders on the desktop)
+        elif len(f) >= 2 and f[0].upper() == 'HKLM' and re.search(r'\\NameSpace\\', f[1], re.I):
+            yield f + [''] * (5 - len(f))
 
 def main():
     box, d, dlls = sys.argv[1], sys.argv[2], sys.argv[3:]
@@ -46,9 +51,10 @@ def main():
     n = 0
     for dll in dlls:
         f = os.path.abspath(os.path.join(d, dll if '.' in dll else dll + '.dll'))
-        for _, key, name, flags, val in lines(reginst(f), f):
+        for hive, key, name, flags, val in lines(reginst(f), f):
             fl = int(flags, 0) if flags else 0
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, root + '\\' + key) as k:
+            at = root if hive.upper() == 'HKCR' else r'Software\pcrecomp\%s\HKLM' % box
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, at + '\\' + key) as k:
                 if fl & 1 and fl & 0x10000: winreg.SetValueEx(k, name or None, 0, winreg.REG_DWORD, int(val or '0', 0))
                 elif not (fl & 0xFFFF0000 == 0 and fl & 2 and val == ''):
                     winreg.SetValueEx(k, name or None, 0, winreg.REG_EXPAND_SZ if fl & 0x20000 else winreg.REG_SZ, val)

@@ -1469,3 +1469,68 @@ process, not hiddenrun's pid) found:
   Windows 2000 "58 110 165" in the box would not reach it; server_info
   should take it from the box's Control Panel\Colors when there is one.
 Not started: the taskbar (NtUserSetWindowRgn), the Start menu, Run -> winmine.
+
+### Icons on the desktop: the listview was the host's (handoff)
+
+**Root cause (pcrecomp 691d577).** ImageList_GetIconSize was never reached: a
+probe in the lifted comctl32 (sub_20806B26, LVM_SETIMAGELIST sub_2080FCB6, the
+listview procedure sub_208137F9) printed nothing. The guest's comctl32 registered
+none of its classes. A DLL-load probe showed why: the first host window starts
+Win11's text services (MSCTF, MSUTB), and the language bar loads the **host's
+comctl32 5.82** into the process, which registers SysListView32, ToolbarWindow32,
+... as global classes. The guest's comctl32 asks GetClassInfo first; the emulated
+NtUserGetClassInfo fell back to GetClassInfoEx(NULL), found the host's, and
+comctl32 skipped registering. Every guest control was a host control, which takes
+none of the guest's handles (LVM_SETIMAGELIST's HIMAGELIST: icon size 0). Not a
+lifter or calling-convention bug. (ImmDisableTextFrameService(-1) did not stop it.)
+Fixed in w32kuser.c:
+- NtUserGetClassInfo does not answer a host DLL's class (its procedure lives in a
+  module other than the host user32, or ntdll's WOW64 stubs, which are the system
+  classes'); RegisterClass retries a CS_GLOBALCLASS name a host DLL holds as the
+  DLL's local class; CreateWindowEx picks the guest's class (procedure ==
+  wnd_thunk) under the instance it was registered with. Atoms do not tell
+  classes apart (the same name is the same string atom).
+
+Then three more on the way to icons:
+- the guest listview's WM_PAINT never painted (WM_PAINT forever): user32's
+  GetUpdateRect answers FALSE client-side while WND+0x64 hrgnUpdate is 0. Now
+  HRGN_FULL when the host window has an update region, and NtUserGetUpdateRect.
+- NtGdiGetAppClipBox (GetClipBox) answered.
+- the items had no text or icon: comctl32 sends WM_NOTIFY only to a parent in its
+  own process (GetWindowThreadProcessId), which answered 0 because the handle
+  entry's pOwner was 0. Now a stand-in THREADINFO (never the threads' shared one),
+  so user32 asks NtUserQueryWindow.
+
+**Desktop colour.** server_info takes COLOR_* from the box's
+HKCU\Control Panel\Colors (native32_registry_box_sz, box only), else the host's;
+those colours get their own brushes, and the virtual screen's class background
+too. tools/profile.py seeds the box from Windows 2000's HIVEDEF.INF (Background
+58 110 165). tools/reginst.py also writes the INFs' HKLM ...\NameSpace lines:
+with the box's own Desktop\NameSpace key, Win11's 33 host entries are no longer
+enumerated (they were 27 nameless folders on the desktop).
+
+shots/exp/s16_22.png (local, as p17_22): blue desktop, My Computer, My Network
+Places, Recycle Bin, My Documents with their icons (before the NameSpace fix: plus
+nameless folders).
+
+**Regression: a startup deadlock, 1-3 runs in 4.** With the guest's own comctl32
+controls, some runs hang before the first paint (black shot, exit 4): the main
+thread waits; one thread holds the loader lock (2004F170), the process heap lock
+(+0x608) and ole32's lock 210E60E8 (count 13). Baseline (pcrecomp 68b921f) 0/4;
+without the pOwner change still 1/4, so it comes from the guest controls
+themselves. Next: run with NATIVE32_SYSCALLS until it hangs and read that
+thread's last calls ("tX waits for lock ... owned by"); suspect a guest thread
+blocked in a host call (a cross-thread SendMessage from a guest control's
+create) while holding the heap lock.
+
+interact (all 8, once, after the runtime change): every state 0 except sol deck
+click 6593 (expected) and freecell card to cell 4790 (the known flake).
+
+Registry snapshot (HKCU\Control Panel, CurrentVersion\Explorer, both Policies)
+before the first explorer run and after the last: Control Panel and Policies
+unchanged; Explorer: only the host shell's own UserAssist counters
+(UEME_CTLSESSION, Chrome) and one SessionInfo\...\W32: window record removed:
+the host's activity, not the guest's.
+
+Not done: the taskbar (Shell_TrayWnd is 4x0 at -2,2: NtUserSetWindowRgn still
+unanswered), the Start menu, Run -> winmine.

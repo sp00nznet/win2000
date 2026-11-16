@@ -10,10 +10,12 @@ paths, Shell Folders expanded) into the box under
 HKCU\\Software\\pcrecomp\\BOX\\{HKCU,HKLM}: the box answers a value before the
 real key (pcrecomp regbox32.c). The runner points USERPROFILE and
 ALLUSERSPROFILE at DIR/user and DIR/all (tools/run_explorer.sh).
+Also Windows 2000's own colour scheme (HIVEDEF.INF's HKCU Control Panel\\Colors,
+from work/iso/I386): the emulated win32k takes the box's colours (pcrecomp w32kuser.c).
 ponytail: Windows 2000's names only; a host-only value (a GUID-named folder)
 still falls through to the host's key, which Windows 2000's shell32 never asks for.
 """
-import os, sys, winreg
+import os, re, sys, winreg
 
 USER = {'AppData': r'Application Data', 'Cookies': 'Cookies', 'Desktop': 'Desktop', 'Favorites': 'Favorites',
         'NetHood': 'NetHood', 'Personal': 'My Documents', 'My Pictures': r'My Documents\My Pictures',
@@ -35,8 +37,19 @@ def seed(box, hive, var, base, folders):
     for rel in folders.values():
         os.makedirs(os.path.join(base, rel), exist_ok=True)
 
+def colors(box, inf):
+    """HKCU,"Control Panel\\Colors","Background",0x00000000,"58 110 165" lines into the box"""
+    if not os.path.exists(inf):
+        return
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r'Software\pcrecomp\%s\HKCU\Control Panel\Colors' % box) as k:
+        for l in open(inf, encoding='latin-1'):
+            m = re.match(r'HKCU,"Control Panel\\Colors","(\w+)",0x0000000[02],"([\d ]+)"', l)
+            if m:
+                winreg.SetValueEx(k, m.group(1), 0, winreg.REG_SZ, m.group(2))
+
 if __name__ == '__main__':
     box, d = sys.argv[1], os.path.abspath(sys.argv[2])
     seed(box, 'HKCU', 'USERPROFILE', os.path.join(d, 'user'), USER)
     seed(box, 'HKLM', 'ALLUSERSPROFILE', os.path.join(d, 'all'), COMMON)
+    colors(box, os.path.join(os.path.dirname(__file__), '..', 'work', 'iso', 'I386', 'HIVEDEF.INF'))
     print('profile %s: %s' % (box, d))
