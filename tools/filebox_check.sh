@@ -27,4 +27,5 @@ L=$(run 'dir /b G:\recomp\pc\win2000\work\rebased')
 echo "$L" | grep -qi kernel32 && bad "loader directory listed" || ok "loader directory: files only, not listed"
 L=$(run 'ver'); echo "$L" | grep -q "Windows 2000" && ok "the loader still maps the lifted modules (ver)" || bad "ver: $L"
 L=$(run 'dir /b C:\ | more' | grep -v '^$'); [ "$(echo "$L" | sort | tr '\n' ' ')" = "WINNT inbox_dir inbox_marker.txt new.txt " ] && ok "a pipe to the lifted more (child runners in the box): $(echo $L)" || bad "dir | more: $L"
+L=$(run 'dir C:\'); echo "$L" | grep -q "2,684,354,560 bytes free" && ok "free space is the box's (2.5 GB of 4 GB)" || bad "free space: $(echo "$L" | tail -1)"
 exit $fail

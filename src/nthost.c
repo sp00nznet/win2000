@@ -342,11 +342,11 @@ static void host_createprocess(int ansi) {
     }
     /* ponytail: the guest's environment block and directory are not passed (ours; the box's C:\) */
     if (!CreateProcessW(run, line, NULL, NULL, ARG(4) != 0,
-                        ARG(5) & (CREATE_SUSPENDED | CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW),
+                        ARG(5) & CREATE_SUSPENDED,   /* ponytail: no new console or detach: the runner logs to our stderr */
                         NULL, NULL, &si, &out)) {
         g_eax = 0;
     } else {
-        fprintf(stderr, "[launch] %ls -> %ls (pid %lu): %ls\n", stem, run, out.dwProcessId, line);
+        fprintf(stderr, "[launch] %ls -> %ls (pid %lu, flags %08X, si %08lX): %ls\n", stem, run, out.dwProcessId, ARG(5), si.dwFlags, line);
         if (pi) memcpy((void*)(uintptr_t)pi, &out, sizeof out);
         else CloseHandle(out.hProcess), CloseHandle(out.hThread);
         g_eax = 1;
@@ -402,6 +402,10 @@ static int host_main(int argc, char** argv) {
         char box[64] = "w2k\\";
         strncat(box, W2K_EXE, 40);
         *strrchr(box, '.') = 0;
+        /* a program a guest launched shares its launcher's box (one HKCU, as on Windows
+         * 2000: winmine on explorer's screen takes the box's Control Panel\Colors) */
+        if (getenv("W2K_REGBOX")) strncpy(box, getenv("W2K_REGBOX"), 63), box[63] = 0;
+        SetEnvironmentVariableA("W2K_REGBOX", box);
         if (!native32_registry_sandbox(box)) { fprintf(stderr, "no registry sandbox: not running\n"); return 1; }
         native32_registry_sandbox_nt(native32_nt_override, native32_nt_forward, native32_nt_proxy_hook);
     }

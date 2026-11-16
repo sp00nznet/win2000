@@ -47,10 +47,48 @@ def colors(box, inf):
             if m:
                 winreg.SetValueEx(k, m.group(1), 0, winreg.REG_SZ, m.group(2))
 
+ACCESSORIES = [('Notepad', 'notepad.exe'), ('Calculator', 'calc.exe'), ('Paint', 'mspaint.exe'), ('WordPad', 'wordpad.exe'),
+               (r'Games\FreeCell', 'freecell.exe'), (r'Games\Minesweeper', 'winmine.exe'), (r'Games\Solitaire', 'sol.exe')]
+
+def lnk(path, guest):
+    """A Windows 2000 shortcut to a guest path (C:\\WINNT\\system32\\x.exe, 8.3 names): only the
+    target ID list (My Computer, the drive, one file-system item per component). No LinkInfo:
+    linkinfo.dll is not in the guest. ponytail: no dates, sizes or icon location in the items."""
+    import struct
+    items = [bytes.fromhex('1F50E04FD020EA3A6910A2D808002B30309D')]          # My Computer
+    items.append(b'\x2F' + guest[:3].encode() + bytes(19))                   # the drive: C:\ (25 bytes)
+    parts = guest[3:].split('\\')
+    for i, p in enumerate(parts):
+        flag = 0x32 if i == len(parts) - 1 else 0x31                          # file, directory
+        attr = 0x20 if flag == 0x32 else 0x10
+        items.append(struct.pack('<BBIHHH', flag, 0, 0, 0, 0, attr) + p.encode() + b'\0' + (b'\0' if len(p) % 2 == 0 else b''))
+    idl = b''.join(struct.pack('<H', len(it) + 2) + it for it in items) + b'\0\0'
+    hdr = struct.pack('<I16sIIQQQIIIHHII', 0x4C, bytes.fromhex('0114020000000000C000000000000046'), 1, 0x20, 0, 0, 0,
+                      0, 0, 1, 0, 0, 0, 0)
+    with open(path, 'wb') as f:
+        f.write(hdr + struct.pack('<H', len(idl)) + idl + b'\0\0\0\0')
+
+def accessories(d, sysdir):
+    """All Users' Start Menu\\Programs\\Accessories (Windows 2000's names) to the lifted accessories:
+    the targets are Windows 2000's own files in the box's C:\\WINNT\\system32, for their icons only;
+    the launch path starts the lifted runner by name (win2000 src/nthost.c), never the file."""
+    import shutil
+    box_sys = os.path.join(d, '..', 'WINNT', 'system32')
+    os.makedirs(box_sys, exist_ok=True)
+    for name, exe in ACCESSORIES:
+        src = os.path.join(sysdir, exe)
+        if os.path.exists(src) and not os.path.exists(os.path.join(box_sys, exe)):
+            shutil.copyfile(src, os.path.join(box_sys, exe))
+        p = os.path.join(d, 'all', 'Start Menu', 'Programs', 'Accessories', name + '.lnk')
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        lnk(p, 'C:\\WINNT\\system32\\' + exe)
+
 if __name__ == '__main__':
     box, d = sys.argv[1], os.path.abspath(sys.argv[2])
     g = sys.argv[3] if len(sys.argv) > 3 else d     # the guest's name for DIR (in a file box: C:\...)
     seed(box, 'HKCU', 'USERPROFILE', os.path.join(d, 'user'), USER, g + r'\user')
     seed(box, 'HKLM', 'ALLUSERSPROFILE', os.path.join(d, 'all'), COMMON, g + r'\all')
     colors(box, os.path.join(os.path.dirname(__file__), '..', 'work', 'iso', 'I386', 'HIVEDEF.INF'))
+    if g.startswith('C:\\'):     # in a file box: DIR is the box's C:\Documents and Settings
+        accessories(d, os.path.join(os.path.dirname(__file__), '..', 'work', 'sys'))
     print('profile %s: %s' % (box, d))

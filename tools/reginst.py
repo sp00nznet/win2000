@@ -40,7 +40,7 @@ def lines(inf, mod):
     sub = lambda s: re.sub(r'%(\w+)%', lambda m: strs.get(m.group(1), m.group(0)), s)
     for l in [x for k, v in sec.items() if k != 'strings' and 'del' not in k for x in v]:
         f = [x.strip() for x in next(csv.reader([sub(l)], skipinitialspace=True))]
-        if len(f) >= 2 and f[0].upper() == 'HKCR' and re.match(r'(CLSID|AppID)\\|(Folder|Directory|Drive)(\\|$)', f[1], re.I):
+        if len(f) >= 2 and f[0].upper() == 'HKCR' and re.match(r'(CLSID|AppID)\\|(Folder|Directory|Drive|lnkfile|\.lnk|exefile|\.exe)(\\|$)', f[1], re.I):
             yield f + [''] * (5 - len(f))
         # the shell's namespaces (Desktop, MyComputer, ...\NameSpace): with the box's own key the
         # host's is never enumerated (Win11's 33 desktop items were nameless folders on the desktop)
@@ -57,9 +57,12 @@ def hive_items(iso, dlls):
     ns = [x for x in lines(rd('HIVESFT.INF'), '') if re.search(r'Desktop\\NameSpace\\\{.*\}$', x[1], re.I)
           and srv.get(x[1].rsplit('\\', 1)[1].upper(), '').replace('.dll', '') in dlls]
     want = {x[1].rsplit('\\', 1)[1].upper() for x in ns}
+    # every HIVECLS class a lifted DLL serves (the shell link, {00021401}: shell32's, registered there)
+    want |= {c for c, s in srv.items() if s.replace('.dll', '') in dlls}
     # and the shell's own classes: a folder's open verb is Windows 2000's "Explorer.exe /idlist,%I,%L"
     # (the host's Folder\shell\open has no arguments: every folder opened as My Documents)
-    shell = [x for x in cls if x[1].split('\\')[0].upper() in ('FOLDER', 'DIRECTORY', 'DRIVE')]
+    # and shortcuts and programs (lnkfile's link handler): the box answers a class it has whole (pcrecomp regbox32.c)
+    shell = [x for x in cls if x[1].split('\\')[0].upper() in ('FOLDER', 'DIRECTORY', 'DRIVE', 'LNKFILE', '.LNK', 'EXEFILE', '.EXE')]
     return ns + [x for x in cls if '\\' in x[1] and x[1].split('\\')[1].upper() in want] + shell
 
 def main():
@@ -79,14 +82,14 @@ def main():
             val = re.sub(r'(?i)^(%SystemRoot%\\System32\\)?(\w+\.dll)',
                          lambda m: os.path.join(SYS32, m.group(2)), val)
             # so is a file in an INF directory (LDID 10/25 Windows, 11 System32): My Computer's %25%\Explorer.exe,0
-            val = re.sub(r'(?i)^%(?:10|11|25)%\\(\w+\.(?:dll|exe))',
+            val = re.sub(r'(?i)^%(?:10|11|25|SystemRoot)%\\(\w+\.(?:dll|exe))',
                          lambda m: os.path.join(SYS32, m.group(1).lower()), val)
             at = root if hive.upper() == 'HKCR' else r'Software\pcrecomp\%s\HKLM' % box
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, at + '\\' + key) as k:
                 if fl & 1 and fl >> 16 == 3:                     # REG_BINARY, its bytes across the fields
                     winreg.SetValueEx(k, name or None, 0, winreg.REG_BINARY, bytes(int(x, 16) for x in [val] + data if x))
                 elif fl & 1 and fl & 0x10000: winreg.SetValueEx(k, name or None, 0, winreg.REG_DWORD, int(val or '0', 0))
-                elif not (fl & 0xFFFF0000 == 0 and fl & 2 and val == ''):
+                elif not (fl & 0xFFFF0000 == 0 and fl & 2 and val == '' and not name):   # a named empty value is data (lnkfile's IsShortcut)
                     winreg.SetValueEx(k, name or None, 0, winreg.REG_EXPAND_SZ if fl & 0x20000 else winreg.REG_SZ, val)
             n += 1
     print('%d class lines into HKCU\\%s' % (n, root))

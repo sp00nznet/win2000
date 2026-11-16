@@ -135,7 +135,7 @@ def main():
     ap.add_argument('cmd', nargs=argparse.REMAINDER)
     a = ap.parse_args(); a.stop = False
     cmd = a.cmd[1:] if a.cmd[:1] == ['--'] else a.cmd
-    name = 'pcrecomp_hidden'
+    name = os.environ.get('HIDDENRUN_DESKTOP', 'pcrecomp_hidden')   # another run's windows (another tool's hiddenrun) stay off this one's
     desk = u32.CreateDesktopW(name, None, None, 0, 0x10000000, None)
     if a.preview:
         hwnd = a.preview_hwnd = preview_window(desk, *map(int, a.preview.split('x')))

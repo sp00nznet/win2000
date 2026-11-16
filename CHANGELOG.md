@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- Pipes in the lifted cmd (`echo hi | find "hi"`, `| more`): every nthost build's CreateProcess
+  is the launch path (build\nt<name>.exe, else build\<name>.exe) with the guest's handles;
+  find.exe and more.com lifted on lifted ulib.dll. Start -> Programs -> Accessories from the
+  private profile (profile.py .lnk files) launches Notepad. A launched program shares its
+  launcher's registry box (winmine's caption in the box's colours, its menu bar not greyed).
+  reginst.py: lnkfile/exefile and every HIVECLS class a lifted DLL serves. filebox_check 11/11.
 - Start -> Run -> winmine: the Run dialog opens (WM_COMMAND 0x191 on the tray), "winmine"
   resolves through App Paths in explorer's box (reginst.py: one per build
 t<name>.exe) and

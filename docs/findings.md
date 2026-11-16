@@ -2062,3 +2062,79 @@ the host's light one; its menu bar is drawn inactive); the folder window's
 place (cascade) varies run to run; "Disk free space" is the host volume's
 (fake the box's in FileFsSizeInformation); the host HKCR still answers what
 the box lacks (imageres.dll icons asked for); linkinfo.dll not yet needed.
+
+### Pipes, launched programs' frames, free space, Accessories, HKCR (handoff)
+
+pcrecomp w2k b38cf5a + the commit after it. shots/exp (local):
+startmenu_accessories.png (Start -> Programs -> Accessories from the private
+profile, Windows 2000's own icons), accessories_notepad.png (Notepad launched
+from there by real clicks), winmine_active.png (Start -> Run -> winmine: blue
+caption, black menu bar), w9_c6_23.png (C: again; My Computer and Recycle Bin
+now draw Windows 2000's icons).
+
+**Pipes never worked: not a sandbox regression.** The guard that refuses a
+non-lifted image section (and NtCreateProcess) came in with the first boot
+(pcrecomp 530efea); cmd's child for `echo hi | find "hi"` is cmd.exe, which
+is refused with or without PCRECOMP_FILEBOX (shown on HEAD with the box off:
+hard error on `C:\Windows\system32\cmd.exe`). Now:
+- CreateProcessW/A is the launch path in every nthost build (not only the
+  user-layer ones): build\nt<name>.exe, else build\<name>.exe (cmd, find,
+  more); the guest's inherit flag and STARTF_USESTDHANDLES handles are passed
+  (guest handles are host handles), creation flags only CREATE_SUSPENDED (the
+  shell asks CREATE_NEW_CONSOLE; the runner logs to our stderr). The child gets
+  `--raw` and the rest of the command line as it is (quotes kept: `find "hi"`).
+- find.exe and more.com lifted on lifted ulib.dll (work/rebased-util,
+  ulib at 0x20300000): `build\find.exe`, `build\more.exe`.
+- The file box refused CreatePipe's own pipe: the `\Device\NamedPipe\
+  Win32Pipes.` prefix is 29 characters, the check compared 30.
+- cmd's program search lists PATH directories; the guest's system32 is not
+  listable, so `PCRECOMP_GUEST_PATH` adds guest directories to the guest's
+  Path, and the runners put names in the box's `C:\WINNT\system32` (find.exe,
+  more.com placeholders; profile.py copies Windows 2000's accessory exes there
+  as files for their icons: never run, the launch path starts by name).
+`echo hi | find "hi"`, `find /c`, `dir | find /i`, `| more`, `||` on a miss
+all work; filebox_check.sh 11/11 (a pipe to more in the box; free space).
+
+**winmine's frame (its own process).** The light caption was the host's
+colours: winmine's registry box had no Control Panel\Colors. A program a guest
+launches now shares its launcher's box (`W2K_REGBOX`, one HKCU as on Windows
+2000). Its menu bar was greyed by the host (not the foreground queue): the
+screen's windows get their menu bar text redrawn in MENUTEXT on MENU after the
+host's frame paint (w32kuser screen_menubar). hiddenrun: `HIDDENRUN_DESKTOP`
+names the private desktop (another tool's DISPLAY.DRV window on the shared
+`pcrecomp_hidden` desktop was screenshotted instead of ours twice).
+
+**Free space** (FileFsSizeInformation / FileFsFullSizeInformation): a fixed
+4 GB disk, 2.5 GB free (ponytail), `dir` says 2,684,354,560 bytes free.
+
+**Accessories.** profile.py writes Windows 2000-style .lnk files (only a
+target ID list: My Computer, C:\, 8.3 items; no LinkInfo, linkinfo.dll is not
+in the guest) into All Users\Start Menu\Programs\Accessories (+ Games). The
+first click showed "This file does not have a program associated": the box
+had no `.lnk`/`lnkfile` and the shell link class {00021401} had no
+InProcServer32. reginst.py now takes HIVECLS's lnkfile/.lnk/exefile/.exe and
+every HIVECLS class a lifted DLL serves, writes named empty values
+(IsShortcut), and maps `%SystemRoot%\x.exe` to the guest's system32 (My
+Computer's Explorer.exe,0). Start -> Programs -> Accessories -> Notepad by
+real clicks launches ntnotepad on the screen.
+
+**HKCR.** regbox32: a class the box has (Classes\<name>, also under
+WOW6432Node and the per-user _Classes) is answered by the box alone; the
+host's subkeys and values under it are not seen. The per-user
+`Explorer\CLSID\` overrides are hidden like CLSID (the Recycle Bin's imageres
+icons came from HKCU there). `PCRECOMP_REGTRACE` also prints every host key
+read. No imageres.dll request in the last runs; host-only classes (htmlfile,
+.htm) still read through.
+
+interact (all 8): every state 0 (winmine's click 21 pixels on the first pass,
+0 on a rerun: its timer). filebox_check.sh 11/11.
+Registry: work/regsnap/before9.txt / after9.txt: only the host's own
+SessionInfo\ApplicationViewManagement and UserAssist counters changed;
+Control Panel and both Policies unchanged.
+
+Gaps: the Internet Explorer desktop item (now shown, from Windows 2000's data)
+has a generic icon (iexplore.exe as a file is in Program Files, its CLSID's
+icon path not mapped); winmine's frame borders are the host's; the guest's
+environment block and directory are not passed to a child (ours, C:\);
+`start` (a new console) runs in ours; NtUserSendMessageCallback is unshimmed.
+Next: the IE icon, `Control Panel` from My Computer, a child's environment.
