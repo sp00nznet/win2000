@@ -103,6 +103,10 @@ static const ntp_stub_t g_ole32[] = {
     /* wordpad: no compound files (each call fails) */
     { "StgOpenStorage", 6, o_fail6 }, { "OleRegGetUserType", 3, o_fail3 }, { "ReadClassStg", 2, o_fail2 },
     { "StgCreateDocfileOnILockBytes", 4, o_fail4 }, { "CreateILockBytesOnHGlobal", 3, o_fail3 }, { "ReleaseStgMedium", 1, g_zero1 },
+    /* riched20 GetProcAddresses these at its first message: a name missing
+     * here was a NULL call, which pops no arguments (8 bytes off the stack,
+     * the heap corruption of docs/linux.md) */
+    { "RegisterDragDrop", 2, g_zero2 }, { "RevokeDragDrop", 1, g_zero1 },
 };
 static const ntp_stub_t g_imm32[] = {
     { "ImmAssociateContext", 2, g_zero2 }, { "ImmGetCompositionStringW", 4, g_zero4 }, { "ImmGetCompositionWindow", 2, g_zero2 },
