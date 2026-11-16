@@ -494,3 +494,48 @@ all; a click on File and a move hot-tracks Open. In sol, F2 deals anew.
 - A TrueType bytecode interpreter (fpgm, prep, glyph programs) so
   notepad's text can be compared pixel for pixel with a Windows 2000 VM.
 - Per-thread message queues when a second thread makes a window.
+
+## Stage 6 on Linux: mspaint (in progress)
+
+**State:** `mspaint-linux` builds and runs to its message loop on its own
+lifted mspaint, mfc42u **and comctl32**, plus user32, gdi32, kernel32,
+msvcrt and ntdll. It exits cleanly, but the only shot is 6x25, so the frame
+window is not sized or shown yet.
+
+The Linux set is `ntmspaint_lx`. It is separate from the explorer agent's
+work: its own comctl32 copy in `work/lx` and its own catalogs in `work/cat-lx`.
+
+```
+expand work\iso\I386\COMCTL32.DL_ work\lx\src\comctl32.dll
+py -3 ../pcrecomp-w2k-linux/tools/pe/rebase.py work/lx/src work/lx/reb comctl32.dll=0x20800000
+R=work/rebased-gui; PCRECOMP=../pcrecomp-w2k-linux py -3 tools/lift.py ntmspaint_lx $R/mspaint.exe \
+  $R/mfc42u.dll work/lx/reb/comctl32.dll $R/ntdll.dll $R/kernel32.dll $R/msvcrt.dll $R/user32.dll $R/gdi32.dll
+tools/linux_push.sh netlab@netlab-linux /tmp/w2k-s6 ../pcrecomp-w2k-linux ntmspaint_lx
+# box: sh linux_build.sh ntmspaint_lx; cd root; ../mspaint-linux --out out/mp --shot 8
+```
+
+That takes about 13 minutes of lifting (mfc42u: 0 unimplemented; comctl32: 61,
+all in dead code). A set named `ntX_lx` builds `X-linux`.
+`linux_build.sh` adds `-DW2K_MFC` (mfc42u at 0x20600000, comctl32 at
+0x20800000) and `-DW2K_RICHED` (riched20 at 0x20700000) when the set has
+them. `nthost_linux.c` has stubs for what mspaint, mfc42u and comctl32
+import from advapi32, shell32 (`CommandLineToArgvW` gives one argument),
+ole32 and imm32 (all failing or empty).
+
+**Not answered yet:**
+- NtUserGetThreadState(1)
+- NtUserCallHwnd(…, 0x3D)
+- NtUserCallOneParam 0x25
+- NtUserGetIconSize
+- NtUserGetCursorFrameInfo
+- NtGdiGetTextCharsetInfo
+- NtGdiGetRandomRgn
+- NtGdiGetLayout (no service name)
+
+### Next
+
+1. Answer the services above, then find out why MFC's frame stays 6x25. Start
+   with the CW_USEDEFAULT size, ShowWindow(SW_SHOWDEFAULT) and
+   NtUserGetThreadState(1), which is GTS_ACTIVEWINDOW.
+2. wordpad: the same with riched20 (`ntwordpad_lx`), and check which
+   ole32 imports riched20 and wordpad need.

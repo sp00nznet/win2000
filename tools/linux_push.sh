@@ -16,7 +16,11 @@ if [ "$APP" = cmd ]; then
 else
   # stage 3: the GUI set, the win32k names, Windows 2000's bitmap fonts (expanded from the CD's .FO_)
   CARDS=; [ -d "src/gen/$APP/cards" ] && CARDS=cards.dll
-  tar cf - -C work/rebased-gui "${APP#nt}.exe" $CARDS ntdll.dll kernel32.dll msvcrt.dll user32.dll gdi32.dll | ssh "$HOST" "tar xf - -C $DIR/root/sys"
+  EXE=${APP#nt}; EXE=${EXE%_lx}
+  [ -d "src/gen/$APP/mfc42u" ] && CARDS="$CARDS mfc42u.dll"
+  [ -d "src/gen/$APP/riched20" ] && CARDS="$CARDS riched20.dll"
+  [ -d "src/gen/$APP/comctl32" ] && tar cf - -C work/lx/reb comctl32.dll | ssh "$HOST" "tar xf - -C $DIR/root/sys"
+  tar cf - -C work/rebased-gui "$EXE.exe" $CARDS ntdll.dll kernel32.dll msvcrt.dll user32.dll gdi32.dll | ssh "$HOST" "tar xf - -C $DIR/root/sys"
   # the TrueType faces w32kposix rasterizes (expand.exe from the CD's LUCON.TT_, TAHOMA.TT_), when there
   TT=$(cd work/fonts && ls lucon.ttf tahoma.ttf 2>/dev/null || true)
   tar cf - -C work/names win32k_2000sp4.txt -C ../fonts sserife.fon vgasys.fon $TT | ssh "$HOST" "tar xf - -C $DIR/root/sys"

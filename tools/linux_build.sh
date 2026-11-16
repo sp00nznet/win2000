@@ -27,12 +27,14 @@ if [ "$APP" = cmd ]; then
   gcc -m32 -no-pie "$O"/*.o obj/ntposix.o obj/nthost_cmd.o -lpthread -lm -o cmd-linux
   echo "built ./cmd-linux"
 else
-  EXE=${APP#nt}
+  EXE=${APP#nt}; EXE=${EXE%_lx}                 # (ntmspaint_lx: mspaint's Linux set, with comctl32)
   gcc $HOST -c $N/ntposix.c -o obj/ntposix.o
   gcc $HOST -c $N/w32klayout.c -o obj/w32klayout.o
   X=; LX=; [ -e /usr/lib/i386-linux-gnu/libX11.so ] && X=-DW2K_X11 LX=-lX11   # --live
   gcc $HOST $X -c $N/w32kposix.c -o obj/w32kposix.o
   CARDS=; [ -d "gen/$APP/cards" ] && CARDS=-DW2K_CARDS
+  [ -d "gen/$APP/mfc42u" ] && CARDS="$CARDS -DW2K_MFC"
+  [ -d "gen/$APP/riched20" ] && CARDS="$CARDS -DW2K_RICHED"
   gcc $HOST -DW2K_GUI $CARDS "-DW2K_EXE=\"$EXE.exe\"" -c src/nthost_linux.c -o obj/nthost_$EXE.o
   gcc -m32 -no-pie "$O"/*.o obj/ntposix.o obj/w32klayout.o obj/w32kposix.o obj/nthost_$EXE.o $LX -lpthread -lm -o "$EXE-linux"
   echo "built ./$EXE-linux"

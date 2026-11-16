@@ -72,6 +72,10 @@ static void g_zero1(void) { RET(0, 1); }
 static void g_zero2(void) { RET(0, 2); }
 static void g_zero3(void) { RET(0, 3); }
 static void g_zero6(void) { RET(0, 6); }
+static void g_zero4(void) { RET(0, 4); }
+static void g_zero5(void) { RET(0, 5); }
+static void g_enoent4(void) { RET(ERROR_FILE_NOT_FOUND, 4); }
+static void g_enoent8(void) { RET(ERROR_FILE_NOT_FOUND, 8); }
 static void g_zero0(void) { RET(0, 0); }
 static const ntp_stub_t g_advapi32_gui[] = {
     { "RegOpenKeyExA", 5, g_RegOpenKeyExA }, { "RegOpenKeyExW", 5, g_RegOpenKeyExA }, { "RegCreateKeyExW", 9, g_RegCreateKeyExW },
@@ -80,12 +84,34 @@ static const ntp_stub_t g_advapi32_gui[] = {
     /* notepad, freecell */
     { "RegCreateKeyW", 3, g_RegCreateKeyW }, { "RegDeleteValueW", 2, g_zero2 }, { "RegFlushKey", 1, g_zero1 },
     { "IsTextUnicode", 3, g_zero3 },
+    /* mspaint, MFC (mfc42u) */
+    { "RegCreateKeyExA", 9, g_RegCreateKeyExW }, { "RegOpenKeyW", 3, a_RegOpenKeyW }, { "RegOpenKeyExW", 5, a_RegOpenKeyExW },
+    { "RegEnumKeyExA", 8, g_enoent8 }, { "RegEnumKeyW", 4, g_enoent4 }, { "RegQueryValueW", 4, g_enoent4 },
+    { "RegSetValueExA", 6, g_zero6 }, { "RegSetValueW", 5, g_zero5 },
+};
+/* ole32, imm32: MFC's storage and IME calls; nothing here has either */
+static void o_fail1(void) { RET(0x80004005u, 1); }
+static void o_fail2(void) { RET(0x80004005u, 2); }
+static const ntp_stub_t g_ole32[] = {
+    { "CoTaskMemFree", 1, g_zero1 }, { "StringFromCLSID", 2, o_fail2 }, { "WriteClassStg", 2, o_fail2 },
+    { "WriteFmtUserTypeStg", 3, g_zero3 }, { "OleInitialize", 1, o_fail1 }, { "OleUninitialize", 0, g_zero0 },
+};
+static const ntp_stub_t g_imm32[] = {
+    { "ImmAssociateContext", 2, g_zero2 }, { "ImmGetCompositionStringW", 4, g_zero4 }, { "ImmGetCompositionWindow", 2, g_zero2 },
+    { "ImmGetContext", 1, g_zero1 }, { "ImmNotifyIME", 4, g_zero4 }, { "ImmReleaseContext", 2, g_zero2 },
+    { "ImmSetCompositionWindow", 2, g_zero2 },
 };
 static void s_ShellAboutW(void) { RET(1, 4); }
+static void s_CommandLineToArgvW(void) {      /* (cmdline, int* argc): one argument, the whole line */
+    uint32_t v = ntp_alloc(8);
+    MEM32(v) = ARG(0);
+    if (ARG(1)) MEM32(ARG(1)) = 1;
+    RET(v, 2);
+}
 static void s_DragQueryFileW(void) { RET(0, 4); }
 static const ntp_stub_t g_shell32[] = {
     { "ShellAboutW", 4, s_ShellAboutW }, { "DragQueryFileW", 4, s_DragQueryFileW }, { "DragFinish", 1, g_zero1 },
-    { "DragAcceptFiles", 2, g_zero2 },
+    { "DragAcceptFiles", 2, g_zero2 }, { "CommandLineToArgvW", 2, s_CommandLineToArgvW }, { "ExtractIconW", 3, g_zero3 },
 };
 /* notepad's common dialogs and printer: none here (each one cancelled) */
 static void c_GetFileTitleW(void) {           /* the file part of a path into the buffer */
@@ -116,6 +142,12 @@ static const struct { const char* name; uint32_t base; } g_mods[] = {
     { "user32.dll", 0x20300000u }, { "gdi32.dll", 0x20400000u },
 #ifdef W2K_CARDS
     { "cards.dll", 0x20500000u },                  /* sol, freecell */
+#endif
+#ifdef W2K_MFC
+    { "mfc42u.dll", 0x20600000u }, { "comctl32.dll", 0x20800000u },   /* mspaint, wordpad (comctl32: MFC loads it) */
+#endif
+#ifdef W2K_RICHED
+    { "riched20.dll", 0x20700000u },               /* wordpad */
 #endif
 };
 /* W2K_FIXED_TICK=n / W2K_FIXED_TIME=s, as on Windows (src/nthost.c): the
@@ -185,6 +217,8 @@ static void* host_main(void* rcp) {
     ntp_proxy("advapi32.dll", g_advapi32_gui, sizeof g_advapi32_gui / sizeof g_advapi32_gui[0]);
     ntp_proxy("shell32.dll", g_shell32, sizeof g_shell32 / sizeof g_shell32[0]);
     ntp_proxy("winmm.dll", g_winmm, 1);
+    ntp_proxy("ole32.dll", g_ole32, sizeof g_ole32 / sizeof g_ole32[0]);
+    ntp_proxy("imm32.dll", g_imm32, sizeof g_imm32 / sizeof g_imm32[0]);
     ntp_proxy("comdlg32.dll", g_comdlg32, sizeof g_comdlg32 / sizeof g_comdlg32[0]);
     ntp_proxy("winspool.drv", g_winspool, sizeof g_winspool / sizeof g_winspool[0]);
     ntp_syscalls(0x20000000u);
