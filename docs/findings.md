@@ -1133,3 +1133,19 @@ the desktop thread:
 Registry snapshots (HKCU\Control Panel, ...\CurrentVersion\Explorer,
 ...\Policies) before and after all these runs: only UserAssist counters of
 the user's own programs changed.
+
+Follow-up (same session): every host module proxied into a guest now logs
+`[nt] HOST DLL in the guest: <path>, through a proxy image` (pcrecomp
+syscall32.c), and `tools/run_explorer.sh` exits 1 with `!!! HOST MODULE IN THE
+GUEST` if any such module other than its ALLOW list (advapi32 only) appears.
+The oleaut32 crash reproduces every run now (a1, a2): sub_2117AD70 (a fill
+into a {ptr, remaining, buf[0xF0]} block at 0x2118C5B0 in oleaut32's data)
+runs with ptr = a fresh page-aligned address (0x07EE1000) and faults at +4.
+The calls before it: oleaut32 0x21176360 -> kernel32 TlsAlloc, then
+0x211786A0 -> ntdll. Not yet known whether that page is a reserve oleaut32
+expects to be committed on demand (an __except that commits, which the lift
+would have to resume into) or a pointer read from the wrong TLS slot (TlsAlloc
+just before: check the slot index the lifted kernel32 hands back against the
+TEB's TlsSlots/TlsExpansionSlots the guest reads). Next: `--argtrace` on
+0x2117AD70 and its caller, and NATIVE32_SYSCALLS around the NtAllocate
+VirtualMemory that returned that page.
