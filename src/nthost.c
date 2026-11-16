@@ -116,6 +116,20 @@ static void fixed_tick(void) {
     g_esp += 4;
 }
 
+#if defined(W2K_USER_LAYER)
+/* The guest's AdjustWindowRectEx(RECT*, style, bMenu, exstyle) answered by
+ * the host's: a window sized from its client area afterwards (sol) gets the
+ * host's frame, which is the frame it is drawn with. */
+static void host_adjust(void) {
+    g_eax = AdjustWindowRectEx((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2), ARG(3));
+    g_esp += 4 + 16;
+}
+static void host_adjust3(void) {
+    g_eax = AdjustWindowRect((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2));
+    g_esp += 4 + 12;
+}
+#endif
+
 static int host_main(int argc, char** argv) {
     const char* sys = W2K_SYS, *nlsdir = W2K_NLS;
     char dir[MAX_PATH], nls[MAX_PATH];
@@ -210,6 +224,15 @@ static int host_main(int argc, char** argv) {
     }
 #ifdef W2K_GDI_LAYER
     if (!native32_gdi_start(native32_module("gdi32.dll"))) fprintf(stderr, "gdi32 has no GdiDllInitialize\n");
+#endif
+#if defined(W2K_USER_LAYER)
+    {
+        /* (replaced by address: only a program's calls through its IAT see
+         * it; user32's own direct calls keep Windows 2000's) */
+        uint32_t u = native32_module("user32.dll");
+        native32_replace(native32_export(u, "AdjustWindowRectEx"), host_adjust);
+        native32_replace(native32_export(u, "AdjustWindowRect"), host_adjust3);
+    }
 #endif
     if (getenv("W2K_FIXED_TICK"))
         native32_replace(native32_export(native32_module("kernel32.dll"), "GetTickCount"), fixed_tick);

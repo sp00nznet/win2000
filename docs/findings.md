@@ -557,7 +557,38 @@ still compared equal (stale shots). Fixed, and interact.py drops shots older
 than the run. Single runs still flake occasionally (an inactive menu bar after
 Intermediate, 409 pixels); a rerun is 0.
 
-sol and freecell are lifted on user32 (`ntsol`, `ntfreecell`) but cards.dll's
-bitmaps go through lifted user32's LoadBitmap: NtGdiCreateDIBitmapInternal,
-NtGdiGetDCforBitmap, then NtUserGetDCEx/GetWindowDC, unanswered. sol exits
-at once; freecell shows its frame.
+### sol and freecell on lifted user32 + gdi32
+
+cards.dll's bitmaps now load through lifted user32's LoadBitmap:
+NtGdiCreateDIBitmapInternal (fInit 2, a DIB-format bitmap: the host's
+CreateDIBitmap of the same header), NtGdiCreateBitmap (the mask),
+NtUserGetDCEx, NtUserGetWindowDC, NtUserSystemParametersInfo (the host's),
+NtUserPostMessage (sol posts itself its deal), NtUserValidateTimerCallback.
+NtGdiGetDCforBitmap stays unanswered (0) with no visible effect.
+
+**The frame.** The create-time frame correction (CreateWindowEx of a
+top-level frame adds host-minus-Windows-2000 border) was right for winmine and
+the dialogs, wrong for freecell (640x480 asked, a window size, not a client
+size: 12 pixels too tall). It now applies only when x is not CW_USEDEFAULT.
+sol sizes itself afterwards from AdjustWindowRect: the guest user32's
+AdjustWindowRect/Ex exports are answered by the host's (nthost.c,
+native32_replace; a program's IAT calls see it, user32's own direct calls
+keep Windows 2000's). Both 0 after that.
+
+| App | State | Pixels differing |
+|---|---|---|
+| sol | deal (500x443) | 0 |
+| sol | a click on the deck | 0 |
+| freecell | Game > New (500x480) | 0 |
+| freecell | a click on a column, then a free cell | 0 |
+
+**Caveat: neither build draws a card.** The stage 1 builds show the green
+table and the status line only, at 15 s too, and with PrintWindow flag 0 as
+well as PW_RENDERFULLCONTENT, so it is not the capture: the comparisons above
+cover the table, menus and status only. cards.dll's drawing on stage 1 is the
+next thing to look at (findings' stage 1 table says "deal drawn"; that was
+before the private desktop narrowed the window to 500 wide).
+
+Harness: `hiddenrun.py` captures with PrintWindow (PW_RENDERFULLCONTENT); the
+window DC is only there to make a compatible bitmap (a stale comment said
+BitBlt).

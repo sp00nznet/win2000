@@ -6,8 +6,11 @@
 - notepad and calc on their own lifted user32 + gdi32 (`build/ntnotepad.exe`,
   `build/ntcalc.exe`, CMake `w2k_user_host`): pixel-identical to stage 1 at
   start, with text typed (notepad) and after 12+3= (calc). `interact.py`
-  takes app names (`winmine notepad calc`). ntsol/ntfreecell targets lifted,
-  not yet drawing.
+  takes app names (`winmine notepad calc sol freecell`).
+- sol and freecell on lifted user32 + gdi32 (`ntsol`, `ntfreecell`):
+  table, menus and status pixel-identical after the deal and a click; no
+  cards drawn on either build yet. The guest's AdjustWindowRect(Ex) answered
+  by the host's; the create-time frame correction skipped for CW_USEDEFAULT.
 - Text messages through win32k's own callbacks: `__fnINLPCREATESTRUCT`,
   `__fnINSTRING`, `__fnINCNTOUTSTRING`, with A/W conversion for ANSI classes
   (pcrecomp w32kuser.c).

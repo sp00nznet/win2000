@@ -33,8 +33,7 @@ def grab(h):
     w, hh = r.right - r.left, r.bottom - r.top
     if w <= 0 or hh <= 0:
         return None, r
-    # BitBlt from the window's own DC sends no message, so a busy window
-    # cannot hang the capture (PrintWindow would wait on its WM_PRINT).
+    # (the window DC only makes a compatible bitmap; the capture is PrintWindow)
     sdc = u32.GetWindowDC(h); mdc = g32.CreateCompatibleDC(sdc)
     bmp = g32.CreateCompatibleBitmap(sdc, w, hh); g32.SelectObject(mdc, bmp)
     # PrintWindow renders the window alone; a BitBlt from its DC also reads

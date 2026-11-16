@@ -28,12 +28,14 @@ APPS = {
                 ('menu2', [('menu, Interm.', 7, ['--command', '522@3', '--post', '0x112,0xF100,0x67@5'])])],
     # notepad's stage 1 build takes ~6 s to show its window (host comdlg32, shell32)
     'notepad': [('np', [('start', 9, []), ('typed', 11, ['--type', '15=Hello, Windows 2000@9.5'])])],
+    'sol': [('sol', [('deal', 8, []), ('deck click', 10, ['--click', '40,60@9'])])],
+    'freecell': [('fc', [('deal', 8, ['--command', '102@3']), ('card to cell', 11, ['--click', '40,300@9', '--click', '40,50@10'])])],
     'calc': [('calc', [('start', 5, []),
                        ('12+3=', 8, sum((['--command', '%d@%.1f' % (CALC[c], 5.5 + 0.3 * i)] for i, c in enumerate('12+3=')), []))])],
 }
 import time
 T0 = time.time()
-env = dict(os.environ, PCRECOMP_MUTE='1', MSYS_NO_PATHCONV='1', W2K_FIXED_TICK='12345')
+env = dict(os.environ, PCRECOMP_MUTE='1', MSYS_NO_PATHCONV='1', W2K_FIXED_TICK='12345', W2K_FIXED_TIME='1000000000')   # (sol's and freecell's deals)
 RUNS = [(app, run, steps) for app in (sys.argv[1:] or APPS) for run, steps in APPS[app]]
 for app, run, steps in RUNS:
     shots = [t for _, t, _ in steps]
