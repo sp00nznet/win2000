@@ -5,7 +5,7 @@
 cd "$(dirname "$0")/.." || exit 1
 B=work/fbtest; rm -rf $B; mkdir -p $B/C/inbox_dir; echo hi > $B/C/inbox_marker.txt
 # the guest's PATH has C:\WINNT\system32, placeholders for cmd's search (the launch path starts the runner by name)
-mkdir -p $B/C/WINNT/system32; : > $B/C/WINNT/system32/find.exe; : > $B/C/WINNT/system32/more.com
+mkdir -p $B/C/WINNT/system32; : > $B/C/WINNT/system32/find.exe; : > $B/C/WINNT/system32/more.com; : > $B/C/WINNT/system32/cmd.exe
 export PCRECOMP_GUEST_PATH='C:\WINNT\system32'
 export MSYS_NO_PATHCONV=1 PCRECOMP_MUTE=1 PCRECOMP_FILEBOX="$(cygpath -w "$PWD/$B")"
 run() { timeout 30 ./build/cmd.exe --mute -- /c "$1" 2>&1 | tr -d '\r' | grep -v '^\[' | grep -v 'lifted functions, entering' ; }
@@ -28,4 +28,8 @@ echo "$L" | grep -qi kernel32 && bad "loader directory listed" || ok "loader dir
 L=$(run 'ver'); echo "$L" | grep -q "Windows 2000" && ok "the loader still maps the lifted modules (ver)" || bad "ver: $L"
 L=$(run 'dir /b C:\ | more' | grep -v '^$'); [ "$(echo "$L" | sort | tr '\n' ' ')" = "WINNT inbox_dir inbox_marker.txt new.txt " ] && ok "a pipe to the lifted more (child runners in the box): $(echo $L)" || bad "dir | more: $L"
 L=$(run 'dir C:\'); echo "$L" | grep -q "2,684,354,560 bytes free" && ok "free space is the box's (2.5 GB of 4 GB)" || bad "free space: $(echo "$L" | tail -1)"
+L=$(run 'cd C:\inbox_dir & set FBVAR=guestval & cmd /c "cd & echo %FBVAR%"' | grep -v '^ *$' | tr '\n' ' ')
+[ "$(echo $L)" = 'C:\inbox_dir guestval' ] && ok "a child cmd gets the guest's directory and environment: $L" || bad "child env/cwd: $L"
+run 'cd /d G:\recomp\pc\win2000\work\rebased & echo x> fbtest_evil.txt' >/dev/null
+[ ! -e work/rebased/fbtest_evil.txt ] && ok "a write after cd into a loader directory: not written" || { rm -f work/rebased/fbtest_evil.txt; bad "wrote into work/rebased"; }
 exit $fail

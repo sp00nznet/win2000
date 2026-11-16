@@ -2138,3 +2138,83 @@ icon path not mapped); winmine's frame borders are the host's; the guest's
 environment block and directory are not passed to a child (ours, C:\);
 `start` (a new console) runs in ours; NtUserSendMessageCallback is unshimmed.
 Next: the IE icon, `Control Panel` from My Computer, a child's environment.
+
+### Control Panel, its applets, a child's environment, host settings (handoff)
+
+pcrecomp w2k 53b351b. shots/exp (local): cp10_29.png
+(My Computer -> Control Panel: Administrative Tools, Date/Time, Display,
+Keyboard, Mouse, Printers, Fonts; the Internet Explorer desktop icon now
+Windows 2000's blue e), td11_52.png (Start -> Run -> `rundll32
+shell32.dll,Control_RunDLL timedate.cpl`: Date/Time inside the virtual screen),
+rd4_33.png (Date/Time, day 1 and Apply: `[guard] NtSetSystemTime: a host
+setting, refused`), ms1_37.png (Mouse), kb1_37.png (Keyboard).
+
+**A child's environment and directory.** The launch path (nthost.c) passes the
+guest's environment block (its own from the guest PEB, or the one it passed;
+A or W) and current directory (lpCurrentDirectory, else the guest's) as
+PCRECOMP_GUEST_ENV (entries split by U+0001) and PCRECOMP_GUEST_CWD; the
+child's process parameters (syscall32.c) take them. The child runner's HOST
+environment stays the launcher's, so a guest `set PCRECOMP_FILEBOX=` or Path
+never reaches a host loader; a guest directory is used only if it is a box
+drive path with no `..`. filebox_check 13/13: `cd C:\inbox_dir & set
+FBVAR=guestval & cmd /c "cd & echo %FBVAR%"` prints both; a write after `cd`
+into a loader directory does not land.
+
+**Host settings guarded at the system call** (syscall32.c): NtSetSystemTime
+with a new time, every NtSetSystemInformation class (time zone, time
+adjustment), NtSetDefaultLocale/UILanguage, shutdown/power, drivers, firmware
+variables: STATUS_PRIVILEGE_NOT_HELD, logged. SeSystemtimePrivilege
+(NtAdjustPrivilegesToken) reports enabled in the guest only, so Date/Time
+opens (it refused itself before); its Apply hits the refusal. win32k:
+NtUserChangeDisplaySettings refused unless CDS_TEST (DISP_CHANGE_FAILED);
+SystemParametersInfo SETs were already refused; NtUserEnumDisplayDevices /
+EnumDisplaySettings answered read-only (the current mode is the virtual
+screen's size). NtUserSendMessageCallback: own windows sent now, the guest's
+callback called with the result; broadcasts and other processes' windows
+dropped. Lifted cmd's `time`/`date` already failed at the host token's
+privilege check; the guard is the second layer (and the only one for the time
+zone, which an ordinary user's token allows).
+
+**Control Panel.** shell32 lists `HKLM\...\Control Panel\CPLs` paths with
+FindFirstFile on each (and `*.CPL` in system32). The file box refused every
+directory open in a loader directory; now a loader directory's handle is
+allowed but NtQueryDirectoryFile on it answers one exact name only (a
+wildcard or a NULL name is refused / no more files, logged), and it is never
+the root of a relative open or rename. reginst.py writes CPLs (timedate, desk,
+main), InProcCPLs, an empty ControlPanel\NameSpace (the two nameless host
+folders remain: subkey enumeration still merges the host's), and empty
+NetworkProvider\Order/HwOrder (Windows 2000's mpr loaded the host's ntlanman,
+p9np, drprov, dokan providers before that: the run failed the host-module
+check, now clean).
+Lifted into ntexplorer and ntrundll32 (work/rebased-shell, from the CD):
+timedate.cpl 0x21700000, imm32 0x21800000, main.cpl 0x21900000, comdlg32
+0x21A00000, mpr 0x21B00000, devmgr.dll 0x21C00000 = our stand-in
+(src/stub/devmgr.c, tools/devmgr_stub.cmd: DeviceCreateHardwarePage returns
+NULL; Windows 2000's devmgr pulls setupapi/cfgmgr32/wmi).
+**TlsFree** ended in NtSetInformationThread(ThreadZeroTlsCell) forwarded to
+the host, which zeroed that slot in every HOST thread (comdlg32's detach after
+Control Panel freed main.cpl: a fault in TlsFree, explorer gone). Now the
+guest's slot in this thread's guest TIB (ponytail: other guest threads keep a
+stale value).
+**rundll32**: build\ntrundll32.exe (its own lift: rundll32.exe has no
+relocations) on the same modules; the launch path starts it for
+`rundll32 shell32.dll,Control_RunDLL x.cpl`. A comctl32 function reached by
+the Run box's autocomplete was unlifted (ICALL 0x20823000): seeded.
+
+Gaps / next:
+- A double-click on an applet in the Control Panel window selects it and
+  nothing more: shell32's CPL invoke (sub_20A7A107, the InProcCPLs check) is
+  never entered (calltrace work/ct_td.txt); DefView's default-command path for
+  the CP items is the place to look. Start -> Run with the rundll32 line works.
+- Display: desk.cpl shows a message box that lays out at 16x39 (MessageBox
+  from a lifted user32 in a rundll32 runner: SoftModalMessageBox's template
+  size; timedate's privilege box had the same size). Its text is not known yet.
+- rundll32.exe imports imagehlp: the host's imagehlp.dll is proxied into
+  ntrundll32 (startup lines, so run_explorer's check skips them). Lift Windows
+  2000's imagehlp next; not reviewed for the ALLOW list.
+- Mouse/Keyboard draw without their tab strip; Keyboard asks for intl.cpl
+  (host's refused: lift Windows 2000's for Input Locales).
+- Date/Time's time zone line reads the host's MUI string (@tzres.dll,-212).
+- `start` (CREATE_NEW_CONSOLE): a new console window on the virtual screen
+  would need a guest-drawn console window (conhost is the host's): not cheap;
+  the child still runs in the launcher's console.

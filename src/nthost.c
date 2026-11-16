@@ -340,7 +340,41 @@ static void host_createprocess(int ansi) {
         si.wShowWindow = g->wShowWindow;
         si.hStdInput = g->hStdInput, si.hStdOutput = g->hStdOutput, si.hStdError = g->hStdError;
     }
-    /* ponytail: the guest's environment block and directory are not passed (ours; the box's C:\) */
+    {   /* The guest's environment block (its own, or the one it passed) and current
+         * directory reach the child's GUEST only: PCRECOMP_GUEST_ENV (entries split
+         * by U+0001) and PCRECOMP_GUEST_CWD, read by the child's process parameters
+         * (pcrecomp syscall32.c). The child runner's host environment stays ours, so
+         * a guest `set PCRECOMP_FILEBOX=` or Path never reaches a host loader. */
+        static wchar_t ge[32760], gc[MAX_PATH];
+        const uint8_t* pp = (const uint8_t*)(uintptr_t)*(uint32_t*)(uintptr_t)(native32_guest_peb + 0x10);
+        uintptr_t env = ARG(6) ? ARG(6) : *(uint32_t*)(pp + 0x48);
+        int wide = !ARG(6) || (ARG(5) & CREATE_UNICODE_ENVIRONMENT);
+        size_t o = 0;
+        while (env) {
+            wchar_t v[4096];
+            size_t k = wide ? wcslen((const wchar_t*)env) : strlen((const char*)env);
+            if (!k) break;
+            if (wide) wcsncpy(v, (const wchar_t*)env, 4095);
+            else MultiByteToWideChar(CP_ACP, 0, (const char*)env, -1, v, 4095);
+            v[4095] = 0;
+            env += (k + 1) * (wide ? 2 : 1);
+            if (o + wcslen(v) + 2 >= sizeof ge / 2) break;   /* ponytail: the rest of a huge block dropped */
+            if (o) ge[o++] = 1;
+            wcscpy(ge + o, v), o += wcslen(v);
+        }
+        ge[o] = 0;
+        gc[0] = 0;
+        if (ARG(7)) {
+            if (ansi) MultiByteToWideChar(CP_ACP, 0, (const char*)(uintptr_t)ARG(7), -1, gc, MAX_PATH - 1);
+            else wcsncpy(gc, (const wchar_t*)(uintptr_t)ARG(7), MAX_PATH - 1);
+        } else if (*(uint16_t*)(pp + 0x24) / 2 < MAX_PATH) {
+            memcpy(gc, (const void*)(uintptr_t)*(uint32_t*)(pp + 0x28), *(uint16_t*)(pp + 0x24));
+            gc[*(uint16_t*)(pp + 0x24) / 2] = 0;
+        }
+        gc[MAX_PATH - 1] = 0;
+        SetEnvironmentVariableW(L"PCRECOMP_GUEST_ENV", o ? ge : NULL);
+        SetEnvironmentVariableW(L"PCRECOMP_GUEST_CWD", gc[0] ? gc : NULL);
+    }
     if (!CreateProcessW(run, line, NULL, NULL, ARG(4) != 0,
                         ARG(5) & CREATE_SUSPENDED,   /* ponytail: no new console or detach: the runner logs to our stderr */
                         NULL, NULL, &si, &out)) {

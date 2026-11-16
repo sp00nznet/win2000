@@ -120,5 +120,8 @@ w2k_gdi_host(gdicalc calc.exe)
 
 # Windows inside Windows: explorer.exe on the virtual screen (W2K_SCREEN, docs/findings.md)
 set(W2K_USER_SYS work/rebased-shell)   # the shell's DLLs apart: another program must not load them
-w2k_user_host(ntexplorer explorer.exe ",{\"comctl32.dll\",0x20800000u},{\"shlwapi.dll\",0x20900000u},{\"shell32.dll\",0x20A00000u},{\"browseui.dll\",0x20D00000u},{\"shdocvw.dll\",0x20E00000u},{\"ole32.dll\",0x21000000u},{\"oleaut32.dll\",0x21100000u},{\"rpcrt4.dll\",0x21200000u},{\"actxprxy.dll\",0x21300000u},{\"desk.cpl\",0x21400000u},{\"clbcatq.dll\",0x21500000u},{\"mydocs.dll\",0x21600000u}")
+w2k_user_host(ntexplorer explorer.exe ",{\"comctl32.dll\",0x20800000u},{\"shlwapi.dll\",0x20900000u},{\"shell32.dll\",0x20A00000u},{\"browseui.dll\",0x20D00000u},{\"shdocvw.dll\",0x20E00000u},{\"ole32.dll\",0x21000000u},{\"oleaut32.dll\",0x21100000u},{\"rpcrt4.dll\",0x21200000u},{\"actxprxy.dll\",0x21300000u},{\"desk.cpl\",0x21400000u},{\"clbcatq.dll\",0x21500000u},{\"mydocs.dll\",0x21600000u},{\"timedate.cpl\",0x21700000u},{\"imm32.dll\",0x21800000u},{\"main.cpl\",0x21900000u},{\"comdlg32.dll\",0x21A00000u},{\"mpr.dll\",0x21B00000u},{\"devmgr.dll\",0x21C00000u}")
 
+# rundll32 on the same modules: Control Panel's applets (shell32 runs "rundll32 shell32.dll,Control_RunDLL x.cpl"),
+# the cplfile verb; build\ntrundll32.exe is what the launch path starts for "rundll32"
+w2k_user_host(ntrundll32 rundll32.exe ",{\"comctl32.dll\",0x20800000u},{\"shlwapi.dll\",0x20900000u},{\"shell32.dll\",0x20A00000u},{\"browseui.dll\",0x20D00000u},{\"shdocvw.dll\",0x20E00000u},{\"ole32.dll\",0x21000000u},{\"oleaut32.dll\",0x21100000u},{\"rpcrt4.dll\",0x21200000u},{\"actxprxy.dll\",0x21300000u},{\"desk.cpl\",0x21400000u},{\"clbcatq.dll\",0x21500000u},{\"mydocs.dll\",0x21600000u},{\"timedate.cpl\",0x21700000u},{\"imm32.dll\",0x21800000u},{\"main.cpl\",0x21900000u},{\"comdlg32.dll\",0x21A00000u},{\"mpr.dll\",0x21B00000u},{\"devmgr.dll\",0x21C00000u}")

@@ -97,6 +97,28 @@ def main():
     # DLL): the host's (Win11's 3D Objects, Downloads, ...) were 11 nameless folders next to C:
     winreg.CreateKey(winreg.HKEY_CURRENT_USER, r'Software\pcrecomp\%s\HKLM\SOFTWARE\Microsoft\Windows'
                      r'\CurrentVersion\Explorer\MyComputer\NameSpace' % box).Close()
+    hklm = r'Software\pcrecomp\%s\HKLM\SOFTWARE' % box
+    cv = hklm + r'\Microsoft\Windows\CurrentVersion'
+    # Control Panel's namespace too (the host's two Win11 items were nameless folders)
+    winreg.CreateKey(winreg.HKEY_CURRENT_USER, cv + r'\Explorer\ControlPanel\NameSpace').Close()
+    # The Internet Explorer desktop item's icon (IE's setup writes it on Windows 2000; no INF has it):
+    # iexplore.exe as a file in the box's Program Files (run_explorer.sh), never run
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, root + r'\CLSID\{871C5380-42A0-1069-A2EA-08002B30309D}\DefaultIcon') as k:
+        winreg.SetValueEx(k, None, 0, winreg.REG_SZ, r'C:\Program Files\Internet Explorer\IEXPLORE.EXE,-32528')
+    # The applets Control Panel lists: the guest's system32 cannot be listed (the file box), so
+    # the CPLs key names them (shell32 reads it as well as *.CPL); InProcCPLs runs each inside
+    # explorer (Control_RunDLL in process), not through rundll32: no runner for it
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, cv + r'\Control Panel\CPLs') as k, \
+         winreg.CreateKey(winreg.HKEY_CURRENT_USER, cv + r'\Explorer\ControlPanel\InProcCPLs') as ip:
+        for cpl in ('timedate.cpl', 'desk.cpl', 'main.cpl'):
+            winreg.SetValueEx(k, cpl.split('.')[0], 0, winreg.REG_SZ, os.path.join(SYS32, cpl))
+            winreg.SetValueEx(ip, cpl, 0, winreg.REG_SZ, '')
+    # Windows 2000's mpr.dll (main.cpl imports it) loads the network providers named here: the
+    # host's (ntlanman, RDPNP, P9NP) are host DLLs, so none
+    for order in ('Order', 'HwOrder'):   # (mpr reads both)
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r'Software\pcrecomp\%s\HKLM\SYSTEM\CurrentControlSet'
+                              r'\Control\NetworkProvider\%s' % (box, order)) as k:
+            winreg.SetValueEx(k, 'ProviderOrder', 0, winreg.REG_SZ, '')
     # The URL protocols' icons, which url.dll's registration code (no INF) writes on Windows 2000:
     # the folder window's frame reads HKCR\http\DefaultIcon into a buffer it never checks
     # (shdocvw sub_20E12126), so a missing key is an uninitialized path into Shell_GetCachedImageIndex
