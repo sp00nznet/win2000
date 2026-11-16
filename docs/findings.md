@@ -712,3 +712,27 @@ NtUserGetThreadDesktop, NtGdiGetCharSet (packager), and on clipbrd the
 calls the handoff listed. NtUserSystemParametersInfo passes SET actions to
 the host as well; no accessory sends one, but a guest could change live
 settings. Guard it before a program that does.
+
+### SPI limited to queries; calc at 0; clipbrd needs DDEML
+
+- NtUserSystemParametersInfo answers only GET actions (by name below 0x62,
+  even from 0x62 and in 0x1000/0x2000; 0xD/0x18 with a buffer), fWinIni 0;
+  SETs are refused and logged. No accessory sends one.
+- **calc 0**: the guest's DrawTextW export is answered by the host's
+  (nthost.c, like AdjustWindowRect; pcrecomp `native32_gdi_dc` gives the host
+  DC with the guest attributes applied). freecell's TextOut stays on
+  ExtTextOutW, so it stays 0.
+- clipbrd: FindWindowEx and ModifyUserStartupInfoFlags answered. Its next
+  CreateWindowEx has class 0 and flags 0x80000400: most likely one of the DDEML windows whose
+  class atom win32k keeps in SERVERINFO (ClipBook talks DDE to NetDDE). The
+  calls after it (CallOneParam 0x25 in SoftModalMessageBox, CallHwnd 0x3D,
+  CallHwndLock 0x4C) are its error message box. clipbrd needs DDEML first, so it is a
+  poor test of the ANSI path; packager covers that path.
+- CallOneParam 0x19 callers: CreateIcon, CreateIconIndirect,
+  LookupIconIdFromDirectoryEx, LoadCursorFromFileA (still unanswered; sol and
+  freecell are 0 without it).
+
+| Compare | Result |
+|---|---|
+| interact all five (17 states) | 0 (winmine custom once 658, 0 on rerun: the known flake) |
+| gdicmp all five | 0 |

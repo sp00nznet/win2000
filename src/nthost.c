@@ -124,6 +124,15 @@ static void host_adjust(void) {
     g_eax = AdjustWindowRectEx((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2), ARG(3));
     g_esp += 4 + 16;
 }
+/* The guest's DrawTextW(hdc, text, count, RECT*, format) answered by the
+ * host's: Windows 11's DrawText draws OPAQUE text differently from Windows
+ * 2000's (which ExtTextOutW's it), ClearType pixels a level apart on calc's
+ * buttons; a stage 1 program gets the host's. */
+static void host_drawtext(void) {
+    HDC h = (HDC)native32_gdi_dc(ARG(0));
+    g_eax = (uint32_t)DrawTextW(h, (LPCWSTR)(uintptr_t)ARG(1), (int)ARG(2), (RECT*)(uintptr_t)ARG(3), ARG(4));
+    g_esp += 4 + 20;
+}
 static void host_adjust3(void) {
     g_eax = AdjustWindowRect((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2));
     g_esp += 4 + 12;
@@ -232,6 +241,7 @@ static int host_main(int argc, char** argv) {
         uint32_t u = native32_module("user32.dll");
         native32_replace(native32_export(u, "AdjustWindowRectEx"), host_adjust);
         native32_replace(native32_export(u, "AdjustWindowRect"), host_adjust3);
+        native32_replace(native32_export(u, "DrawTextW"), host_drawtext);
     }
 #endif
     if (getenv("W2K_FIXED_TICK"))
