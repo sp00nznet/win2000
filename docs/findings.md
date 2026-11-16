@@ -1088,3 +1088,48 @@ Next: why explorer exits 1 after the desktop thread starts (NtUserBuildHwndList
 and NtUserCallHwndOpt 0x3F are unanswered; Global\ComPlusCOMRegTable absent;
 run `--calltrace` and filter one thread with tools/calls.py), then the first
 desktop paint.
+
+### Why explorer exited 1: the host's COM classes (and a host COM DLL in the guest)
+
+`--calltrace` on the main thread (tools/calls.py over `work/rebased-shell`):
+`CreateWindowEx("Progman")` fails inside its WM_CREATE: shell32's desktop
+CoCreateInstance's browseui's CCommonBrowser `{AF604EFE-8897-11D1-B944-
+00A0C90312E1}` (and the tray its BandSite `{ECD4FC4D-...}`), the call fails,
+WM_CREATE returns -1, explorer PostQuitMessages and exits 1.
+NtUserBuildHwndList, NtUserCallHwndOpt 0x3F and Global\ComPlusCOMRegTable
+were not it (still unanswered, nothing waits on them yet).
+
+Why it failed: the registry box answered reads with the **host's** keys, and
+Windows 11's HKCR\CLSID names `explorerframe.dll` for those classes. The
+guest's ole32 asked for it, the loader found `C:\Windows\SysWOW64\
+ExplorerFrame.dll` under the system directory, and **the host's
+ExplorerFrame.dll was proxied into the guest** (`[nt] ... the host's, through
+a proxy image`), a host COM server in the guest process, which the rules
+forbid. Fixed both ways (pcrecomp):
+
+| What | Where |
+|---|---|
+| a host DLL that exports DllGetClassObject (a COM server) or a .cpl is never proxied into a lifted process: `[guard] ...: a host COM server or applet: not mapped` (shell32, ole32 and comdlg32 stay allowed: the other nt builds import them statically). Checked by mapping the file as an image resource, no code runs | syscall32.c |
+| with Windows 2000's own ole32 lifted, `Classes\CLSID\...` and `Classes\AppID\...` are answered by the box only, never the host's; the per-user `<sid>_Classes` maps to the box's one merged `HKLM\SOFTWARE\Classes`. `PCRECOMP_REGTRACE=1` names each refused host class key | regbox32.c |
+| tools/reginst.py: each DLL's REGINST resource (the INF its DllRegisterServer hands advpack) -> its HKCR CLSID/AppID lines into `HKCU\Software\pcrecomp\w2k\explorer\HKLM\SOFTWARE\Classes`, InprocServer32 = the module in work/rebased-shell (531 lines from browseui, shell32, shdocvw, comctl32); lift_explorer.sh runs it | win2000 tools |
+| `--argtrace` also prints the 16 bytes the first argument points at (the CLSID of a CoCreateInstanceEx) | recomp_trace.c |
+| the data scan's vtable rule: a slot that ends or starts a run of three (not only the middle one), and a slot a GUID-decoded body covers (the IID before a function decodes as code and runs over it: shdocvw 0x20E0AC30 inside 0x20E0AC20) is a start, kept | disasm32.py |
+
+With that, browseui's and shdocvw's classes load from the lifted modules
+(3 ICALL misses seeded on the way: browseui 0x20D0B840, shdocvw 0x20E11E4C,
+0x20E0AC30, 0x20E076D8). explorer no longer exits: it runs until the watchdog.
+**Nothing is drawn yet** (shots/exp/r9_13.png is the black 800x600 screen).
+
+State now (handoff): two runs, two outcomes, so a race between the main and
+the desktop thread:
+- r9: the main thread waits (NtWaitForSingleObject, from oleaut32
+  0x2117xxxx) while the desktop thread is in ole32's class-registry reads
+  (0x2100777C, a RegOpenKey+RegQueryValue helper, called from 0x21008102);
+- sc4: a fault in oleaut32 sub_2117AD70 (its small-block/BSTR cache) writing
+  just past a fresh NtAllocateVirtualMemory: reserved, not committed, at
+  0x069D1004. Next: who allocates that block (reserve 0x2000 / commit
+  0x1000) and whether Windows 2000 commits on demand there (a guard page or
+  an __except that commits); then the desktop thread's next wait.
+Registry snapshots (HKCU\Control Panel, ...\CurrentVersion\Explorer,
+...\Policies) before and after all these runs: only UserAssist counters of
+the user's own programs changed.

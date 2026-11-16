@@ -7,3 +7,5 @@ py -3 tools/lift.py ntexplorer $R/explorer.exe $R/ntdll.dll $R/kernel32.dll $R/m
 tail -1 work/lift_ntexplorer.log
 cmd //d //c "$(cygpath -w "$PWD")\build.cmd --target ntexplorer" > work/build_ntexplorer.log 2>&1 || { grep -E "error|FAILED" work/build_ntexplorer.log | head; exit 1; }
 echo built
+# Windows 2000's own COM classes into explorer's registry box (with a lifted ole32 the host's are not answered)
+py -3 tools/reginst.py 'w2k\explorer' $R browseui shell32 shdocvw comctl32

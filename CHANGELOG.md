@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- explorer no longer exits 1: its desktop's and tray's COM classes (browseui's CCommonBrowser,
+  BandSite) resolved to the host's ExplorerFrame.dll, which was proxied into the guest. Now
+  a host COM server or .cpl is never mapped into a lifted process, the host's CLSID/AppID
+  keys are not answered when ole32 is lifted, and `tools/reginst.py` seeds explorer's box
+  with Windows 2000's own registrations (each DLL's REGINST INF). Runs to the watchdog; no
+  desktop drawn yet (a main/desktop-thread race in ole32/oleaut32, see findings).
 - Stage 4 on Linux: calc, notepad, sol and freecell (with cards.dll lifted) as i386 ELFs on
   their own lifted user32/gdi32 and pcrecomp's w32kposix, compared with the Windows build
   (`linuxcmp.py --syscolors`: sol 1 of 224,640 pixels, calc only ClearType glyphs). A live
