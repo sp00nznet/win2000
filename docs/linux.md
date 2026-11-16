@@ -495,7 +495,7 @@ all; a click on File and a move hot-tracks Open. In sol, F2 deals anew.
   notepad's text can be compared pixel for pixel with a Windows 2000 VM.
 - Per-thread message queues when a second thread makes a window.
 
-## Stage 6 on Linux: mspaint (done), wordpad (in progress)
+## Stage 6 on Linux: mspaint and wordpad (done)
 
 **State:** `mspaint-linux` builds and runs to its message loop on its own
 lifted mspaint, mfc42u **and comctl32**, plus user32, gdi32, kernel32,
@@ -594,23 +594,83 @@ Fixed on the way:
 - SERVERINFO's atomSysClass has MDIClient (6) and ComboLBox (7): a combo
   box makes its list box by atom.
 
-**State:** the frame, both toolbars, the format bar's combo boxes, the
-ruler and RichEdit20W are created and the frame is shown. Then riched20
-crashes in RtlAllocateHeap (LocalAlloc from riched20 0x2070162C) while
-handling EM_SETOLECALLBACK (0x446): the heap is already corrupt. No shot yet.
+### wordpad: up (pcrecomp 0dec007, win2000 this commit)
 
-Regression after the TLS change (same scripts as Stage 4): calc 5 / 8
-1,486 / 1,504, winmine int 4, 5, 8 0, sol 8 / 10 1 / 1, freecell 8 / 11
-15,463 / 15,945 pixels differ, all as before.
+**The heap corruption was a stack imbalance, not a heap bug.** riched20
+loads ole32 lazily: at its first message it GetProcAddresses
+`RegisterDragDrop` (riched20 0x2071B9D8: `if (!p) p = resolve(...); p(a, b);
+ret 8`). The ole32 proxy had no such name, so the pointer stayed NULL and
+the lifted `RECOMP_ICALL` miss returned without popping the two stdcall
+arguments. Each call left 8 bytes on the stack, the caller's frame shifted,
+and riched20 later wrote through a stale pointer into the process heap.
+The next LocalAlloc (EM_SETOLECALLBACK) fell over. `ICALL: unresolved VA
+0x00000000 from 0x2071B9D8` in the log was the clue. With
+`NTP_GLOBALFLAG=0x470` (ntdll's own heap checks, below) the heap layout
+moved and nothing crashed, so the heap was never at fault.
+
+Fix: the ole32 stubs have `RegisterDragDrop` (2) and `RevokeDragDrop` (1).
+riched20 resolves about 75 names this way (oleaut32, ole32, oleacc, imm32,
+user32). A missing one is always this bug, so any `ICALL: unresolved VA
+0x00000000` in a log needs a stub with the right argument count.
+
+New in pcrecomp:
+- `NTP_GLOBALFLAG=n` sets the PEB's NtGlobalFlag (0x470: tail, free and
+  parameter checks, validate on every call). int 2Dh (DbgPrint) text goes to
+  stderr as `[dbgprint]`.
+- win32k: NtGdiGetTextFaceW, NtGdiEnumFontOpen/EnumFontChunk (one
+  ENUMFONTDATAW per .fon face, Western; a named face is answered as
+  itself), NtUserGetClassName, NtUserFindWindowEx, NtUserUnregisterClass,
+  NtUserCountClipboardFormats (empty), NtUserScrollWindowEx (no bits moved:
+  the whole client is repainted), CallHwndParam 0x41/0x46 on ExStyle and
+  style (the combo box clears WS_VSCROLL|WS_HSCROLL|WS_BORDER, offset 0xE).
+- InvalidateRect repaints the window's children too. The rect is not kept,
+  so a toolbar repainted for its B button painted over its combo boxes.
+- SetActiveWindow on a child does nothing (win32k refuses it). mspaint asks
+  for its view's, and the frame's caption went inactive at the first click.
+
+Compared with `shots/wp_ntwordpad_9.png` by region (the Windows client is
+wider: Windows 11's frame and CW_USEDEFAULT). Each region was placed where
+it fits best, with host system colours mapped to Windows 2000's:
+
+| region (Linux client) | pixels that differ |
+|---|---|
+| standard toolbar (292x23) | 584 of 6,716 |
+| ruler (712x24) | 391 of 17,088 |
+| status text (100x18) | 265 of 1,800 (ClearType vs MS Sans Serif) |
+| format bar buttons (208x26) | 3,335 of 5,408 (button spacing differs; the glyphs match) |
+
+Live under Xvfb (`linux_live.sh wordpad out/live "sleep 6" "mousemove 300
+300" "click 1" "type 'Hello, Windows 2000'" "key Return" "key ctrl+b" "type
+'bold on Linux'" ...`): the text appears with the caret, Ctrl+B makes it bold
+and presses the B button, Undo enables, and 26 Returns scroll the text up.
+
+**Still missing:**
+- The combo boxes' drop arrows are blank. DrawFrameControl takes them from
+  the OEM system bitmaps (gpsi's oembmi / hdcBits), which SERVERINFO lacks,
+  not from Marlett text (no ExtTextOut with the Marlett font is made).
+- The script combo is empty: wordpad's default face, Arial, is not among the
+  enumerated .fon faces.
+- NtUserShowScrollBar: answering it (style bits only) drew a 2 px strip,
+  because RichEdit gets no WM_SIZE, so it was taken out again.
+- No NUM indicator or size grip in the status bar.
+
+Regression (same scripts as Stage 4), with this runtime and with 79c4dbd's:
+winmine int 4, 5, 8: 0. calc 5: 1,486. freecell 8 / 11: 15,463 / 15,945.
+calc 8 is 1,661 and sol 10 is 3,480 (sol 8: 1). Both runtimes give
+byte-identical calc 8 images, so this baseline drifted since the last doc
+(1,504 / 1). calc's '%' button frame and sol's last column (5♥ face up)
+differ; the cause was not looked into.
+
+Build note: building four sets at once on the 4-core, 8 GB box (J=nproc
+each) ran it out of memory for about 20 minutes. Build one set at a time
+with `J=3`.
 
 ### Next
 
-1. wordpad: find the heap corruption (an `NtAllocateVirtualMemory` /
-   RtlValidateHeap check after each riched20 message would narrow it;
-   suspects: a stub with the wrong argument count, the CBT hook, the
-   worker thread). Unanswered: NtGdiGetTextFaceW, NtUserFindWindowEx,
-   NtUserGetClassName, NtGdiEnumFontOpen (format bar's font list),
-   NtUserCountClipboardFormats, NtUserUnregisterClass, CallHwndParam 0x41/0x46
-   on combo windows. Then compare and type text live.
-2. mspaint: the canvas's DIB section (`CreateDIBSection ... bits are not
-   read back`), the inactive caption after the live start.
+1. The OEM system bitmaps in SERVERINFO (combo and scroll arrows).
+2. RichEdit's scroll bar: ShowScrollBar plus WM_SIZE to the window.
+3. wordpad's font list: TrueType faces (Tahoma, Lucida Console) or an
+   Arial alias, so the script combo fills.
+4. mspaint: the canvas's DIB section (`CreateDIBSection ... bits are not
+   read back`).
+5. calc 8 / sol 10 baseline drift (see above).
