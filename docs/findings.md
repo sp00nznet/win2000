@@ -985,3 +985,106 @@ MuiCache\1e6\52C64B7E, Local Settings\MrtCache\...WindowsNotepad...\1dd39a47c156
 Gaps left: a host DLL that finds a registry function with GetProcAddress is not
 boxed; the notepad window after the open shows no text in the shot (not looked
 into).
+
+## Windows inside Windows: explorer.exe on a virtual screen (design)
+
+Goal: Windows 2000's own shell (explorer.exe: desktop, taskbar, Start menu)
+in one host window, as if that window were Windows 2000's screen.
+
+**The virtual screen** (pcrecomp w32kuser.c, on when `W2K_SCREEN=WxH` is set):
+
+- One host window is the screen: `WS_POPUP | WS_CLIPCHILDREN`, W x H, at host
+  (0,0) of the desktop it runs on (hiddenrun's private desktop). Being at
+  (0,0) keeps the virtual screen's coordinates and the host's equal, so no
+  rect, point or message needs translating (ponytail: a screen window
+  elsewhere would need an offset on every rect the layer syncs).
+- The screen window *is* Windows 2000's desktop window: the guest's
+  GetDesktopWindow answers it, and a WND whose host parent is the screen
+  gets the desktop WND as its spwndParent.
+- A guest top-level window is made as the guest asked (popup or overlapped,
+  menu and all), then `SetParent`ed to the screen: still a popup to the host
+  (its menu bar stays), clipped to the screen and drawn inside it, so
+  `PrintWindow(screen, PW_RENDERFULLCONTENT)` is the whole screen. Chosen
+  over compositing because the windows stay real host windows and every
+  existing pixel comparison keeps its path (the mode is off unless asked).
+- Metrics: SM_CXSCREEN/CYSCREEN, the full-screen, maximized and virtual-
+  screen metrics, the primary MONITOR's rcMonitor/rcWork and the work area
+  are the virtual screen's. SPI_SETWORKAREA (the taskbar sets it) is kept
+  in the layer for the guest; nothing reaches the host's settings.
+
+**The shell's reach stays inside**: SetShellWindow(Ex), SetProgmanWindow,
+SetTaskmanWindow, RegisterShellHookWindow, RegisterHotKey and the tray's
+own messages are win32k services the layer answers itself (or the
+unanswered-service default, 0): no host window becomes a shell, tray or
+hotkey owner. Hooks stay thread-scoped as before. explorer's registry
+(Streams, Desktop, Explorer\..., Tray state) goes to the box
+`HKCU\Software\pcrecomp\w2k\explorer`.
+
+**Launching**: explorer starts programs with CreateProcessW (Run dialog,
+ShellExecuteEx in shell32). The guard: NtCreateProcess(Ex) and every host
+CreateProcess*/ShellExecute*/WinExec stay refused. Instead the lifted
+kernel32's CreateProcessW is replaced by the host's own check: the image's
+file name must name a lifted program that has a host runner
+(`build\nt<stem>.exe`, built from that program's lift); then the runner is
+started as a new host process with the guest's command line, and the guest
+gets a process handle/id for it. Anything else (an original exe, a host
+exe, a .bat, an unknown program) fails with ERROR_ACCESS_DENIED and a
+`[guard]` line. The runner joins the same virtual screen: it gets
+`W2K_SCREEN_HWND=<screen>` and parents its top-level windows to it (a
+cross-process SetParent; the child process keeps its own message loop).
+
+### First runs (handoff)
+
+State: `build\ntexplorer.exe` (explorer.exe + comctl32, shlwapi, shell32,
+browseui, shdocvw, ole32, oleaut32, rpcrt4, actxprxy, desk.cpl, clbcatq, all
+Windows 2000 SP4, lifted; `tools/lift_explorer.sh`, `tools/run_explorer.sh
+NAME SECS`) starts, makes the screen window (`W2K_SCREEN=800x600`), creates
+the desktop thread and its first windows (a caption is drawn), then exits 1
+after about 1.5 s. **Nothing of Windows 2000's desktop is drawn yet.** The
+shell's modules live in `work/rebased-shell` (copies of ntdll..gdi32 + the
+shell's), apart from `work/rebased-gui`: with shell32 in rebased-gui every
+other lifted program loaded Windows 2000's shell32 from its DLL path (invalid
+image), and stage 1 mspaint's host loader found the original there and raised
+"Entry Point Not Found" on the real desktop.
+
+Fixed on the way (pcrecomp):
+
+| What | Where |
+|---|---|
+| a guest LPC connect to any port but csrss's ApiPort went to the host (explorer reached the host RPCSS's `\RPC Control\epmapper`): refused, as if not running | csr32.c |
+| the guest's RtlUnwind (native32's shim) unwound the HOST chain in an nt host and the process died with STATUS_UNWIND, no report: `native32_guest_seh = 1` with a lifted ntdll | syscall32.c |
+| `__except` blocks: drive32 now passes the frame offset (RECOMP_EH_FRAME), eh32.py reads every scope-table level (the prologue alone sets none), disasm32 keeps blocks out of the data scan's starts | lift, disasm |
+| delay-load stubs and lazy-import slots (`mov esi, [slot]; call esi`, shell32's DELAY_LOAD) seeded; a None read in close_dispatch_targets (ole32) | disasm32.py |
+| NtCreateThread / NtTerminateThread: guest threads on host threads (their own TEB; the guest's stack committed, its guard page was fatal) | syscall32.c |
+| proxied host DLL missing a Windows 2000 export (advapi32 GetSiteSidFromToken, GetMangledSiteSid, IsProcessRestricted): stubs in the proxy's name table | syscall32.c |
+| NtUserUnregisterClass (ole32 re-registers OleMainThreadWndClass); CreateWindowEx with no hInstance finds a DLL's local class | w32kuser.c |
+| host COM pieces proxied (host actxprxy, clbcatq, desk.cpl loaded natively): lifted Windows 2000's instead. A host DLL's SystemParametersInfo SETs are refused like the guest's (regbox) | CMake, regbox32.c |
+| `NATIVE32_DEBUG_CHILD=1`: the held parent debugs the child and prints second-chance exceptions with the lifted function (found the STATUS_UNWIND death); `W2K_ALL_FAULTS`, entry/terminate reports | native32.c, nthost.c |
+
+Launch path (written, not yet exercised): the lifted kernel32's
+CreateProcessW/A are replaced (nthost.c `host_createprocess`): only a name with
+a runner `build\nt<name>.exe` next to the host is started, as a new host
+process with `--mute -- <args>` and `W2K_SCREEN_HWND` inherited; anything
+else is `[guard] ... refused`. NtCreateProcess and host CreateProcess/
+ShellExecute/WinExec stay refused.
+
+Registry: before/after snapshot of HKCU\Software\Microsoft\Windows\
+CurrentVersion, Windows NT\...\Windows, winmine, Control Panel, Classes\Local
+Settings and HKLM Explorer/Winlogon around all these runs: the changes are the
+user's own Windows 11 activity (UserAssist, TaskbarStateLastRun, AppModel,
+Bags) except **HKCU\Control Panel\Desktop\WindowMetrics: last-write time
+2026-11-16 08:34:42 UTC (values unchanged)**, during the run that loaded the
+host's desk.cpl through a proxy: a host DLL calling SystemParametersInfo
+natively. Now lifted, and host SETs refused. Nothing of explorer's own state
+(StuckRects2, Streams, ShellState, DeskView) changed.
+
+The "RTM 2195.1" archive (Y:) is build 2163: its ntdll, kernel32, msvcrt and
+cmd.exe are byte-identical to pro.zip's (work/sys-rtm), so it adds nothing to
+the cmd regression; its user32/gdi32 are 5.0.2180 (extracted in
+work/sys-rtm2195, not lifted yet). cmd regression (Pro SP4, Server SP4, 2163):
+ver/echo/cd/if/for as before.
+
+Next: why explorer exits 1 after the desktop thread starts (NtUserBuildHwndList
+and NtUserCallHwndOpt 0x3F are unanswered; Global\ComPlusCOMRegTable absent;
+run `--calltrace` and filter one thread with tools/calls.py), then the first
+desktop paint.

@@ -63,11 +63,12 @@ if(TARGET cmd_rtm)
 endif()
 
 # Stage 3: accessories on their own lifted user32 + gdi32 (and kernel32, ntdll, msvcrt)
+set(W2K_USER_SYS work/rebased-gui)
 function(w2k_user_host name exe)
   w2k_host(${name} src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c ${N32}/w32kgdi.c ${N32}/w32kuser.c)
   if(TARGET ${name})
     target_compile_definitions(${name} PRIVATE RECOMP_TRACE=1 W2K_EXE="${exe}" W2K_EXE_W=L"${exe}"
-      EXE_BASE=0x01000000u W2K_SYS="work/rebased-gui" W2K_NLS="work/sys" W2K_CSD=0x0400 W2K_USER_LAYER=1
+      EXE_BASE=0x01000000u W2K_SYS="${W2K_USER_SYS}" W2K_NLS="work/sys" W2K_CSD=0x0400 W2K_USER_LAYER=1
       "W2K_MORE_MODS=,{\"user32.dll\",0x20300000u},{\"gdi32.dll\",0x20400000u}${ARGN}")
   endif()
 endfunction()
@@ -102,3 +103,8 @@ w2k_gdi_host(gdisol sol.exe ",{\"cards.dll\",0x20500000u}")
 w2k_gdi_host(gdifreecell freecell.exe ",{\"cards.dll\",0x20500000u}")
 w2k_gdi_host(gdinotepad notepad.exe)
 w2k_gdi_host(gdicalc calc.exe)
+
+# Windows inside Windows: explorer.exe on the virtual screen (W2K_SCREEN, docs/findings.md)
+set(W2K_USER_SYS work/rebased-shell)   # the shell's DLLs apart: another program must not load them
+w2k_user_host(ntexplorer explorer.exe ",{\"comctl32.dll\",0x20800000u},{\"shlwapi.dll\",0x20900000u},{\"shell32.dll\",0x20A00000u},{\"browseui.dll\",0x20D00000u},{\"shdocvw.dll\",0x20E00000u},{\"ole32.dll\",0x21000000u},{\"oleaut32.dll\",0x21100000u},{\"rpcrt4.dll\",0x21200000u},{\"actxprxy.dll\",0x21300000u},{\"desk.cpl\",0x21400000u},{\"clbcatq.dll\",0x21500000u}")
+

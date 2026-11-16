@@ -41,9 +41,13 @@ def main():
         t0 = time.time()
         stem = os.path.basename(m).lower()
         cat = os.path.join(cat_dir, stem + '.functions.json')
-        if not os.path.exists(cat):
+        # work/seeds/<file>.json: functions a run found unresolved (ICALL), re-catalogued when newer
+        seeds = os.path.join(ROOT, 'work', 'seeds', stem + '.json')
+        seeds = seeds if os.path.exists(seeds) else None
+        if not os.path.exists(cat) or (seeds and os.path.getmtime(seeds) > os.path.getmtime(cat)):
             with open(cat[:-15] + '.catalog.log', 'w') as log:
-                if subprocess.run([sys.executable, os.path.join(TOOLS, 'disasm', 'disasm32.py'), m, '-o', cat],
+                if subprocess.run([sys.executable, os.path.join(TOOLS, 'disasm', 'disasm32.py'), m, '-o', cat]
+                                  + (['--seed-functions', seeds] if seeds else []),
                                   stdout=log, stderr=subprocess.STDOUT).returncode:
                     sys.exit('disasm32 failed on %s, see %s' % (m, log.name))
         st, ent = lift_image(m, cat, os.path.join(out, stem.split('.')[0]))

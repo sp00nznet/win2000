@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wctype.h>
 
 #include "native32.h"
 #include "recomp_trace.h"
@@ -49,9 +50,14 @@ recomp_func_t recomp_lookup_manual(uint32_t va) { (void)va; return NULL; }
 static LONG CALLBACK crash(EXCEPTION_POINTERS* ep) {
     EXCEPTION_RECORD* r = ep->ExceptionRecord;
     HMODULE hm;
+    if (getenv("W2K_ALL_FAULTS")) {     /* every host exception, first chance */
+        fprintf(stderr, "[host] exception %08lX at %p (in sub_%08X, last native %s)\n", r->ExceptionCode,
+                r->ExceptionAddress, g_cur_func, g_cur_import);
+        fflush(stderr);
+    }
     if ((r->ExceptionCode & 0xF0000000u) != 0xC0000000u) return EXCEPTION_CONTINUE_SEARCH;
     if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           (LPCSTR)r->ExceptionAddress, &hm) && hm != GetModuleHandleA(NULL))
+                           (LPCSTR)r->ExceptionAddress, &hm) && hm != GetModuleHandleA(NULL) && !getenv("W2K_ALL_FAULTS"))
         return EXCEPTION_CONTINUE_SEARCH;
     fprintf(stderr, "\n=== fault 0x%08lX at %p (access %08lX) ===\n  in lifted sub_%08X, last native call %s\n",
             r->ExceptionCode, r->ExceptionAddress, (unsigned long)(r->NumberParameters > 1 ? r->ExceptionInformation[1] : 0),
@@ -88,7 +94,15 @@ static DWORD WINAPI watchdog(LPVOID unused) {
 /* The guest's ExitProcess ends in NtTerminateProcess: flush what the host
  * buffers (--calltrace, stdio) before the host kernel ends us. */
 static uint32_t nt_terminate_process(uint32_t* a) {
-    if (a[0] == 0xFFFFFFFFu || a[0] == 0) { recomp_trace_flush(); fflush(NULL); }
+    if (a[0] == 0xFFFFFFFFu || a[0] == 0 || GetProcessId((HANDLE)(uintptr_t)a[0]) == GetCurrentProcessId()) {
+        if (a[1] >= 0xC0000000u) {      /* an exception's code: the guest's last-chance handler */
+            fprintf(stderr, "\n[nt] the guest ends itself with %08X\n", a[1]);
+            native32_dump_icalls(12);
+            recomp_dump_trace("terminate");
+        }
+        recomp_trace_flush();
+        fflush(NULL);
+    }
     return native32_nt_forward("NtTerminateProcess", a);
 }
 /* ---- stage 3 probe: win32k ----------------------------------------------
@@ -203,6 +217,74 @@ static void host_createdcw(void) {
     g_eax = native32_gdi_handle((uint32_t)(uintptr_t)h);
     g_esp += 4 + 16;
 }
+/* CreateProcessW/A(app, cmdline, psa, tsa, inherit, flags, env, dir, si, pi):
+ * the guard's launch path. The program named must be a lifted one with a
+ * host runner next to this one (build\nt<name>.exe, built from its lift);
+ * that runner is started as a new host process with the guest's arguments,
+ * on the same virtual screen (W2K_SCREEN_HWND is in our environment).
+ * Anything else, an original or a host program included, is refused. */
+static void host_createprocess(int ansi) {
+    wchar_t buf[1024], run[MAX_PATH], line[1400], stem[64];
+    const wchar_t* p, *args = L"";
+    size_t n = 0;
+    uint32_t app = ARG(0), cl = ARG(1), pi = ARG(9);
+    STARTUPINFOW si = { sizeof si };
+    PROCESS_INFORMATION out;
+    buf[0] = 0;
+    if (app || cl) {
+        if (ansi) MultiByteToWideChar(CP_ACP, 0, (const char*)(uintptr_t)(app ? app : cl), -1, buf, 1023);
+        else wcsncpy(buf, (const wchar_t*)(uintptr_t)(app ? app : cl), 1023);
+        buf[1023] = 0;
+    }
+    if (cl) {   /* the arguments: the command line after its first token */
+        static wchar_t cw[1024];
+        const wchar_t* c = cw;
+        if (ansi) MultiByteToWideChar(CP_ACP, 0, (const char*)(uintptr_t)cl, -1, cw, 1023);
+        else wcsncpy(cw, (const wchar_t*)(uintptr_t)cl, 1023);
+        cw[1023] = 0;
+        while (*c == L' ') c++;
+        if (*c == L'"') { c = wcschr(c + 1, L'"'); c = c ? c + 1 : L""; }
+        else while (*c && *c != L' ') c++;
+        args = c;
+    }
+    /* the image's file name (no directory, no quotes), its stem */
+    p = buf;
+    while (*p == L' ' || *p == L'"') p++;
+    {
+        const wchar_t* end = p;
+        while (*end && *end != L'"' && (app || *end != L' ')) end++;
+        for (const wchar_t* q = p; q < end; q++) if (*q == L'\\' || *q == L'/' || *q == L':') p = q + 1;
+        while (p + n < end && n < 63) stem[n] = towlower(p[n]), n++;
+        stem[n] = 0;
+    }
+    if (n > 4 && !wcscmp(stem + n - 4, L".exe")) stem[n -= 4] = 0;
+    for (size_t i = 0; i < n; i++) if (!iswalnum(stem[i]) && stem[i] != L'_') n = 0;
+    GetModuleFileNameW(NULL, run, MAX_PATH);
+    if (wcsrchr(run, L'\\')) wcsrchr(run, L'\\')[1] = 0;
+    wcsncat(run, L"nt", MAX_PATH - wcslen(run) - 1);
+    wcsncat(run, stem, MAX_PATH - wcslen(run) - 5);
+    wcscat(run, L".exe");
+    if (!n || GetFileAttributesW(run) == INVALID_FILE_ATTRIBUTES) {
+        fprintf(stderr, "[guard] CreateProcess %ls: not a lifted program: refused\n", buf);
+        SetLastError(ERROR_ACCESS_DENIED);
+        g_eax = 0;
+        g_esp += 4 + 40;
+        return;
+    }
+    _snwprintf(line, 1399, L"\"%ls\" --mute --%ls", run, args);
+    line[1399] = 0;
+    if (!CreateProcessW(run, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &out)) {
+        g_eax = 0;
+    } else {
+        fprintf(stderr, "[launch] %ls -> %ls (pid %lu)\n", stem, run, out.dwProcessId);
+        if (pi) memcpy((void*)(uintptr_t)pi, &out, sizeof out);
+        else CloseHandle(out.hProcess), CloseHandle(out.hThread);
+        g_eax = 1;
+    }
+    g_esp += 4 + 40;
+}
+static void host_createprocessw(void) { host_createprocess(0); }
+static void host_createprocessa(void) { host_createprocess(1); }
 static void host_adjust3(void) {
     g_eax = AdjustWindowRect((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2));
     g_esp += 4 + 12;
@@ -329,6 +411,11 @@ static int host_main(int argc, char** argv) {
         g_cwp_w = recomp_lookup(native32_export(u, "CallWindowProcW"));
         g_cwp_a = recomp_lookup(native32_export(u, "CallWindowProcA"));
         native32_replace(native32_export(native32_module("gdi32.dll"), "CreateDCW"), host_createdcw);
+        {   /* the launch path: lifted programs only, each in its own host runner */
+            uint32_t k = native32_module("kernel32.dll");
+            native32_replace(native32_export(k, "CreateProcessW"), host_createprocessw);
+            native32_replace(native32_export(k, "CreateProcessA"), host_createprocessa);
+        }
         if (g_cwp_w) native32_replace(native32_export(u, "CallWindowProcW"), host_cwp_w);
         if (g_cwp_a) native32_replace(native32_export(u, "CallWindowProcA"), host_cwp_a);
     }
@@ -373,6 +460,11 @@ static int host_main(int argc, char** argv) {
     uint32_t entry = EXE_BASE + nt->OptionalHeader.AddressOfEntryPoint;
     fprintf(stderr, "%s: %u lifted functions, entering 0x%08X\n", W2K_EXE, recomp_dispatch_count, entry);
     native32_call_guest(entry, 0, NULL);
+    if (g_eax >= 0xC0000000u) {     /* the entry point returned an exception's code */
+        fprintf(stderr, "[nt] %s's entry returned %08X\n", W2K_EXE, g_eax);
+        native32_dump_icalls(12);
+        recomp_dump_trace("return");
+    }
     return (int)g_eax;
 }
 
