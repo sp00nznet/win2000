@@ -90,11 +90,10 @@ static const ntp_stub_t g_advapi32_gui[] = {
     { "RegSetValueExA", 6, g_zero6 }, { "RegSetValueW", 5, g_zero5 },
 };
 /* ole32, imm32: MFC's storage and IME calls; nothing here has either */
-static void o_fail1(void) { RET(0x80004005u, 1); }
 static void o_fail2(void) { RET(0x80004005u, 2); }
 static const ntp_stub_t g_ole32[] = {
     { "CoTaskMemFree", 1, g_zero1 }, { "StringFromCLSID", 2, o_fail2 }, { "WriteClassStg", 2, o_fail2 },
-    { "WriteFmtUserTypeStg", 3, g_zero3 }, { "OleInitialize", 1, o_fail1 }, { "OleUninitialize", 0, g_zero0 },
+    { "WriteFmtUserTypeStg", 3, g_zero3 }, { "OleInitialize", 1, g_zero1 }, { "OleUninitialize", 0, g_zero0 },
 };
 static const ntp_stub_t g_imm32[] = {
     { "ImmAssociateContext", 2, g_zero2 }, { "ImmGetCompositionStringW", 4, g_zero4 }, { "ImmGetCompositionWindow", 2, g_zero2 },
@@ -103,9 +102,12 @@ static const ntp_stub_t g_imm32[] = {
 };
 static void s_ShellAboutW(void) { RET(1, 4); }
 static void s_CommandLineToArgvW(void) {      /* (cmdline, int* argc): one argument, the whole line */
-    uint32_t v = ntp_alloc(8);
-    MEM32(v) = ARG(0);
-    if (ARG(1)) MEM32(ARG(1)) = 1;
+    uint32_t line = ARG(0), argc = ARG(1);
+    uint32_t ga[2] = { 0, 8 };                 /* the caller GlobalFrees it: GlobalAlloc(GMEM_FIXED, 8) */
+    ntp_call(ntp_export(ntp_module("kernel32.dll"), "GlobalAlloc"), 2, ga);
+    uint32_t v = g_eax;
+    if (v) MEM32(v) = line, MEM32(v + 4) = 0;
+    if (argc) MEM32(argc) = 1;
     RET(v, 2);
 }
 static void s_DragQueryFileW(void) { RET(0, 4); }
