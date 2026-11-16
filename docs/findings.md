@@ -1949,3 +1949,116 @@ to its box.
 
 Next: the folder window: trace (a)/(b) with --calltrace from the double-click,
 then map C: to a sandbox root before the first drive view.
+
+### The file box; the folder window opens; C: (handoff)
+
+pcrecomp w2k 933423b, dfb1d7b, 8556a5c (+ the handoff commit). shots/exp
+(local): folder_mydocs.png (a desktop double-click on My Documents: the
+folder window with its tree), folder_mycomputer.png (My Computer: Local Disk
+(C:) and Control Panel only), folder_drive_c.png (C: opened inside it:
+Documents and Settings, Program Files, TEMP: the box's), b4_19.png (selected
+icon blended, active caption), w5_23.png (Start -> Run -> winmine still works).
+
+**The file box (pcrecomp syscall32.c, `PCRECOMP_FILEBOX=<dir>`).** The
+guest's drives are directories: every drive path the guest names, `X:\rest`,
+is `<box>\X\rest` in NtCreateFile, NtOpenFile, NtQueryAttributesFile,
+NtQueryFullAttributesFile, NtDeleteFile and a rename/link target
+(NtSetInformationFile 10/11). Rules, on the normalized name (any `.` or `..`
+component is OBJECT_NAME_INVALID):
+- under `<box>` itself: as it is;
+- under a loader directory (the image's, the NLS directory, the runners'
+  build/, the DLL path: the modules and, last, the host system directory for
+  the proxies): **read-only files** (no write, delete, create, delete-on-close,
+  no directory open, so no listing; FILE_WRITE_ATTRIBUTES is dropped, not
+  refused: icon extraction asks for it). The guest's `C:\Windows\system32\x`
+  is the modules' (then the runners') `x` when there is one, else the host
+  system directory's file (the proxies: advapi32);
+- every other absolute name is refused: `\Device\...` (KsecDD, GLOBALROOT),
+  UNC, `\??\Volume{}`, pipes by name, `\SystemRoot`; CreatePipe's own
+  `\Device\NamedPipe\Win32Pipes.*` passes;
+- a relative open (RootDirectory) is relative to a handle the box gave; the
+  current directory is `C:\` (the box's C, handle and DosPath).
+Drive enumeration (ProcessDeviceMap) is the box's one-letter directories
+(fixed); the volume label is empty and the serial the box's; `\??\X:`
+symbolic links are not found (QueryDosDevice); FSCTL_SET_REPARSE_POINT is
+refused (no junction out of the box). The guest's environment names box paths
+as guest paths (`<box>\C\x` -> `C:\x`). run_explorer.sh puts the profile in
+`work/profile/C/Documents and Settings/{user,all}` (profile.py writes the
+Shell Folders as `C:\...`), TEMP in `C:\TEMP`, ProgramFiles at `C:\Program
+Files` (Windows 2000's iexplore.exe there, as a file: never run).
+
+**Check: tools/filebox_check.sh** (Windows 2000's cmd, lifted, in a box under
+work/fbtest), 9/9: `dir /b C:\` lists only the box's two entries;
+`C:\..\..\..` stays at the box's C:; D:, G:, `\?\GLOBALROOT\Device\
+HarddiskVolume1\`, `\localhost\c$`, `\?\UNC\...` list nothing; `cd` is
+`C:\`; `echo > C:\new.txt` lands in the box; a write to the host's build/
+does not happen; `C:\Windows\system32` is not the host's; the modules
+directory is not listed; `ver` still runs (the loader maps the modules).
+Explorer's own view of C: (folder_drive_c.png) is the box's three folders.
+
+**(a) RPC_S_SERVER_UNAVAILABLE raised unhandled.** Raiser: rpcrt4's
+NdrClientCall2 (RpcRaiseException) under an ole32 MIDL stub (0x2100E190, to
+rpcss, from the CoInitializeSecurity path); the guest SEH chain (now printed
+in the unhandled report) holds only rpcrt4's own __finally and user32's
+callback frame: Windows 2000's ole32 has no __except there (rpcss is always
+up). native32 now guards the guest rpcrt4's NdrClientCall2/NdrClientCall: an
+RPC status (0x6A4..0x7FF or its HRESULT) that no guest frame takes runs the
+call's __finally blocks (an unwind) and returns the status from the stub, as
+a [comm_status] procedure would (`[rpc] client call failed with 000006BA`).
+The runs since: the line appears, explorer goes on.
+
+**(b) The NULL/garbage icon path** was two things:
+1. shdocvw sub_20E12126 reads `HKCR\http\DefaultIcon` into a stack buffer it
+   never checks (SHGetValueW, PathParseIconLocationW, Shell_GetCachedImageIndex,
+   ordinal 72). url.dll's registration code writes that key on Windows 2000;
+   the host has none. reginst.py writes http/https/ftp DefaultIcon =
+   `C:\Windows\System32\url.dll,0` (Windows 2000's url.dll in rebased-shell as
+   a file).
+2. `GetFileAttributesW("")` faulted in ntdll's __local_unwind2: a `return`
+   out of RtlDosPathNameToNtPathName_U's __try runs its __finally through
+   __local_unwind2, and that finally (AbnormalTermination) ends in code shared
+   with the function's exit (`mov esp,[ebp-18h]` ... `ret 10h`). Lifted, it
+   returned into __local_unwind2 with esp moved. Reproduced with the lifted cmd:
+   `dir ""`. native32 finds every MSVC __local_unwind2 by its bytes in the
+   guest modules; its funclet call undoes a moved esp (registers, fs:[0]) and
+   the function's own continuation returns the same failure. `dir ""` lists.
+linkinfo.dll: still refused, not needed so far.
+
+**Other fixes found on the way.** Windows 2000's Folder/Directory/Drive verbs
+in the box (HIVECLS): the host's `Folder\shell\open\command` has no
+arguments, so every folder opened as My Documents; now `Explorer.exe
+/idlist,%I,%L` and My Computer opens My Computer. My Computer's NameSpace key
+in the box (the host's 11 Win11 items were nameless folders). App Paths name
+`C:\Windows\System32\nt<app>.exe` (a host path on a drive the guest does not
+have made the shell treat it as 8.3: `ntwinmin.exe`, nothing launched).
+hiddenrun `--dblclick "TITLE:X,Y@T"` (client coordinates of a screen window;
+the folder window's place varies run to run). `[launch]` prints the command.
+
+**Black selected icon: fixed.** comctl32's ImageList_DrawIndirect with
+ILD_SELECTED on a palettized image list copies through StretchDIBits with the
+colour table from GetDIBColorTable = NtGdiDoPalette, which was unanswered
+(NOT SHIMMED, a zero table: black). w32kgdi answers NtGdiDoPalette (iFunc 0-5,
+Windows 2000's numbering: 4 GetDIBColorTable, 5 SetDIBColorTable).
+
+**Active caption: drawn ourselves.** After the host's DefWindowProc paints a
+screen window's frame (WM_NCPAINT/NCACTIVATE/SETTEXT), the screen's topmost
+captioned window gets its caption repainted: the box's ACTIVECAPTION to
+GRADIENTACTIVECAPTION gradient, small icon, Tahoma bold in CAPTIONTEXT, left
+of the caption buttons (WM_GETTITLEBARINFOEX). The folder window and the Run
+dialog are Windows 2000 blue now. Gap: winmine (its own process) shows the
+host's light active caption, and its menu bar stays grey.
+
+interact (all 8, after the runtime changes): every state 0 (winmine 7,
+notepad 2, sol 2, freecell 2, packager 1, wordpad 2, calc 2; mspaint's two
+missing on the first pass, 0/0 rerun).
+
+Registry: work/regsnap/before8.txt / after8.txt. Control Panel and both
+Policies unchanged. Explorer differs only in the host shell's own keys
+(UserAssist, FeatureUsage\AppLaunch, SessionInfo, GlobalAssocChangedCounter,
+Discardable\PostSetup): the host's activity. The guest wrote only its box.
+
+Next: winmine's caption/menu bar (its own process: the active caption is
+the host's light one; its menu bar is drawn inactive); the folder window's
+place (cascade) varies run to run; "Disk free space" is the host volume's
+(fake the box's in FileFsSizeInformation); the host HKCR still answers what
+the box lacks (imageres.dll icons asked for); linkinfo.dll not yet needed.

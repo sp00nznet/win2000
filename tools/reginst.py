@@ -107,7 +107,7 @@ def main():
     for f in os.listdir(b):
         if re.match(r'nt\w+\.exe$', f) and f != 'ntexplorer.exe':
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, ap + '\\' + f[2:]) as k:
-                winreg.SetValueEx(k, None, 0, winreg.REG_SZ, os.path.join(b, f))
+                winreg.SetValueEx(k, None, 0, winreg.REG_SZ, os.path.join(SYS32, f))   # the guest's name: the file box serves it from build
 
 if __name__ == '__main__':
     main()
