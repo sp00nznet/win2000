@@ -1436,3 +1436,36 @@ Next: the icons (above), the background (Control Panel\Colors Background
 is the host's "0 0 0"; seed the box with Windows 2000's 58 110 165 if the
 emulated win32k reads it), the taskbar (NtUserSetWindowRgn still
 unanswered), the Start menu, Run -> winmine.
+
+### The icon height: what the desktop listview holds (handoff)
+
+A probe (SendMessage into the guest's listview from the hidden desktop,
+ReadProcessMemory on the guest; note the windows belong to a *child*
+process, not hiddenrun's pid) found:
+- LVM_GETIMAGELIST 0/1: valid image lists ('HIML', +0x10/+0x14 cx/cy =
+  32/32 and 16/16).
+- The listview struct (GetWindowLong 0): +0xCC the large list, **+0xD0/+0xD4
+  (its cxIcon/cyIcon) = 0**; +0xA8 the small list, +0xAC/+0xB0 = 0;
+  +0xC4/+0xC8 icon spacing 44 = SM_CXICONSPACING 76 - SM_CXICON 32 + 0.
+  LVM_GETITEMRECT LVIR_ICON = (14,0,30,4): no room for the icon, hence the
+  labels at the top.
+- comctl32's LVM_SETIMAGELIST (0x2080FCC0) stores the list and calls
+  ImageList_GetIconSize (0x20806B26) for those fields. Re-sending
+  LVM_SETIMAGELIST (0, then the list) from the probe leaves them 0 again,
+  so the call fails now, with a valid list: its IsImageList (0x2080520F) is
+  IsBadWritePtr(himl, 0x5F8) plus the magic. A test replacement of the
+  lifted IsBadWritePtr logging every call saw 1463 calls, all 0 (not bad),
+  and the icons stayed missing. The lifted C of all three functions reads
+  right. Not found yet. Next: trace sub_20806B26's return and esi inside
+  the guest (a W2K_TRACE-style ring of entries, or a temporary
+  native32_replace of ImageList_GetIconSize that logs its arguments and
+  answers from the list) to see whether it is reached with this list at
+  all; the listview may be getting a different HIMAGELIST than LVM_GETIMAGELIST
+  reports (+0xCC is written before the call).
+- Windows 2000 deals sol's last card face up: the stage-1 (host) build's
+  unturned card (above) is a native32 host-path bug, for later.
+- Desktop colour: the virtual screen's COLOR_BACKGROUND comes from the
+  host's GetSysColor (w32kuser.c server_info), not the registry, so a
+  Windows 2000 "58 110 165" in the box would not reach it; server_info
+  should take it from the box's Control Panel\Colors when there is one.
+Not started: the taskbar (NtUserSetWindowRgn), the Start menu, Run -> winmine.
