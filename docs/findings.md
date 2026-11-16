@@ -758,3 +758,75 @@ Next, in order:
    call; DLLs at free 0x205xxxxx bases), lift, add `w2k_user_host` targets
    with the extra DLLs as in ntsol's cards.dll, and extend interact.py.
 Skip clipbrd (it needs DDEML's server-side classes).
+
+### packager at 0; cursors; mspaint on lifted user32 (in progress)
+
+**packager 0.** Its "--Content--" and "--Appearance--" labels are sized with
+`DrawTextA(DT_CALCRECT)` (0x010089D9) and drawn with TextOutA. Windows 2000's
+DrawTextA measured 1 pixel wider than the host's, so the highlight was 67
+wide instead of 66 and the text sat in a different cell. Fix: the guest's
+DrawTextA export is answered by the host's (nthost.c, like DrawTextW). Font,
+colours and GetTextExtent (flOpts 1, the "Windows 3" extent) were checked
+and were identical. `interact.py packager` gives 0.
+
+**Cursors built client-side.** NtUserCallOneParam 0x19 returns a placeholder
+host icon (a real, unique handle). NtUserSetCursorIconData(hcur, module,
+resource, CURSORDATA*) builds the real host icon with CreateIconIndirect from
+CURSORDATA (0x54 bytes, read off CreateIconIndirect: +8 rt, +0x10/+0x12
+hotspot, +0x14 hbmMask, +0x18 hbmColor, +0x30 bpp, +0x34 cx, +0x38 cy*2).
+cur_host() maps the placeholder to the real icon in SetCursor and
+RegisterClass. No program here calls it yet, so it is untested.
+
+**mspaint / wordpad.** MSPAINT.EX_, WORDPAD.EX_, MFC42U.DL_ and RICHED20.DL_
+are expanded into work/sys and rebased into work/rebased-gui: mfc42u at
+0x20600000, riched20 at 0x20700000 (`rebase.py ... mspaint.exe
+mfc42u.dll=0x20600000`, then again with `wordpad.exe riched20.dll=0x20700000`).
+Stage 1 (`mspaint`, `wordpad`, APP_SYS work/rebased-gui) lifts mfc42u and
+riched20 too, so both builds run Windows 2000's MFC and RichEdit. The nt
+targets are `ntmspaint` and `ntwordpad`.
+
+disasm32 fixes, needed because Windows 2000 merges .rdata into .text:
+- a NUL-terminated ASCII or UTF-16 string is not a function body
+  (`push offset "GetLayout"` was decoded as code and covered a vtable);
+- three aligned code addresses in a row are a table, not code;
+- a vtable slot in code counts even when bad decoding marked its bytes;
+- a code pointer with another one 24 bytes away is an MFC AFX_MSGMAP_ENTRY
+  handler. This adds false starts: mspaint.exe's unimplemented count went
+  from 22 to 584, all in dead code.
+
+Answered for MFC (pcrecomp w32kuser/w32kgdi):
+- SetWindowsHookEx: host hooks on this thread. The guest TEB's thread id is
+  not the host's: passing it installed the hook nowhere. WH_CBT goes through
+  cbt_thunk, which enters the WND at HCBT_CREATEWND so MFC's subclassing
+  SetWindowLong validates.
+- CallNextHookEx, GetProp(A/W) and GetScroll{Info,Pos,Range}: these exports
+  are answered by the host's, because Windows 2000 reads the hook chain,
+  properties and SBINFO client-side.
+- WND +0x60 pcls: a shared zeroed CLS.
+- Top-level spwndParent: a desktop WND (WS_VISIBLE, fnid 0x29D), because
+  IsWindowVisible walks up to it.
+- Other services: GetClassInfo, Set/GetWindowPlacement, DestroyCursor,
+  Set/RemoveProp, SetScrollInfo, SetParent, SelectPalette, WindowFromPoint,
+  SetActiveWindow, DeferWindowPos/EndDeferWindowPosEx, CallOneParam 0x16
+  (BeginDeferWindowPos), CallNoParam 5 (GetMessagePos), CreateDIBSection,
+  CreatePatternBrushInternal, GetDCObject, ExcludeClipRect.
+- Batch commands: 3 (ExtTextOut with no text: { bk colour, options, RECT,
+  attr+0x184/0x188 }) and 5 (ExtSelectClipRgn { mode, RECT }, mode bit 31 =
+  no rect).
+- `hiddenrun.py --drag X1,Y1,X2,Y2@T` posts a drag to the deepest child.
+
+| Compare | Result |
+|---|---|
+| interact winmine (7), notepad (2), sol (2), freecell (2), calc (2), packager | 0 |
+| gdicmp all five | 0 |
+| interact mspaint start / line drawn | 23,990 / 24,247 (both builds draw the line; the toolbox, the frame's client offset (~1 px) and the status bar differ) |
+| wordpad stage 1 | stops at once: ICALL unresolved 0x2070B6E0 (riched20, a vtable slot at 0x20711CA4 whose target lies inside a body decoded from bad evidence; a disasm32 tweak for it had no effect and was reverted) |
+| ntwordpad | runs into the same riched20 miss. Unanswered: NtGdiStretchDIBitsInternal, CallOneParam 0x1E (GetKeyboardLayout), NtUserGetDoubleClickTime, NtUserGetKeyboardLayoutList |
+
+Next:
+1. riched20 0x2070B6E0: find which catalog entry covers it (mid vs covered
+   in find_data_code_pointers) and seed it, or pass `--seed-functions`.
+   Then answer ntwordpad's four calls.
+2. mspaint pixels: compare the toolbox (CToolboxWnd, pressed button) and the
+   frame's client edge. The client is about 1 px lower and to the right,
+   which suggests WS_EX_CLIENTEDGE or border metrics.
