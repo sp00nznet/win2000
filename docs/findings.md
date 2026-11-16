@@ -1617,3 +1617,54 @@ Registry snapshots now in work/regsnap (ignored by git): before/after one
 explorer run differ only in Win11's own SessionInfo\...\W32: record for a
 window that closed (the host's tracking, as in earlier runs); Control Panel
 and Policies unchanged.
+
+### The Start menu shows (handoff)
+
+pcrecomp dc92737. From the tray's WM_COMMAND 0x130 (NATIVE32_SYSCALLS, then
+`--calltrace` + calls.py), four stops on the way to the BaseBar:
+- explorer takes the Start menu out of its LoadMenu bar with RemoveMenu, then
+  DestroyMenu(bar). NtUserRemoveMenu was unanswered (0), so the destroy took the
+  Start menu with it and every later DeleteMenu failed. RemoveMenu/DeleteMenu
+  answered (host menus, menu_sync after).
+- CMenuDeskBar::Popup calls AnimateWindow. It prints the window into a memory
+  DC and gives up if GetBoundsRect says nothing was drawn: NtGdiSet/GetBoundsRect
+  (and RectVisible) answered on the host DC.
+- AW_BLEND (menu fade) sets WS_EX_LAYERED, which a host child window cannot
+  have without a Windows 8 manifest, so it failed. The slide then spun forever:
+  the guest's GetTickCount reads KUSER_SHARED_DATA+0 (TickCountLow), which
+  Windows 10/11 leave 0. On the virtual screen SPI_GETMENUANIMATION and
+  SPI_GETMENUFADE answer FALSE, so menus show with no animation. A moving guest
+  tick (the host's GetTickCount, even counted from start) sent ole32 into the
+  COM+ catalog (clbcatq GetCatalogObject, unlifted vtables, then a fault) at
+  startup. W2K_FIXED_TICK=1000 is fine. Not followed further (work/seeds/
+  clbcatq.dll.json now seeds 113 vtable entries; harmless).
+- SetWindowPos(HWND_TOPMOST) on a screen window is now HWND_TOP among the
+  screen's children (GetAncestor(GA_PARENT): GetParent of a WS_POPUP is its owner).
+Also BM_SETIMAGE/STM_SETIMAGE pass the host's bitmap: the Start button now
+shows its image, but the image is black (the logo+text bitmap is drawn guest-side
+into a DIB section or a mono bitmap that the host doesn't have; not looked at).
+--calltrace buffers 64 KB (a TerminateProcess'd run kept nothing with 4 MB).
+
+shots/exp/startmenu_19.png (local): the Start menu over the desktop, the
+"Windows 2000 Terminal" banner (explorer picks the Terminal banner: probably
+SM_REMOTESESSION from the host's RDP session) and its icons, **no item text**
+(menuband toolbar text, not looked at).
+
+Not done:
+- Run -> winmine: a --drag on the Run item (47,507) does nothing; hiddenrun's
+  "deepest child" may not be the menuband toolbar, or the menuband needs its
+  message hook (WH_GETMESSAGE, set at popup) to see the click. Next: post the
+  click to the toolbar's HWND directly, or a keyboard path (R accelerator).
+- After a click, My Computer / My Network Places labels/icons sometimes vanish
+  (the listview label redraw seen before).
+- reginst.py maps INF directory files (%25%\Explorer.exe,0 for My Computer) to
+  the lifted module; written to the box, the run after the change lost those
+  icons to the redraw bug above, so unverified. Clock, mydocs.dll: not started.
+
+interact (all 8, after the runtime change): every state 0 except freecell
+4790/4790 (the known flake).
+
+Registry: work/regsnap/before2.txt (before the first explorer run), after3.txt
+(after the last): Control Panel and both Policies unchanged; Explorer differs
+only in Win11's own UserAssist counters and SessionInfo\...\W32: records (the
+host shell's tracking). The guest wrote only to its box.

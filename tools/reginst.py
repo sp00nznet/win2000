@@ -25,8 +25,8 @@ def reginst(path):
     return ''
 
 def lines(inf, mod):
-    sec, strs = {}, {'_SYS_MOD_PATH': mod, '_MOD_PATH': mod,
-                 '11': os.path.dirname(mod)}   # LDID 11, the system directory (LocalizedString's @%11%\shell32.dll,-8964): the lifted modules' own
+    sec, strs = {}, {'_SYS_MOD_PATH': mod, '_MOD_PATH': mod}
+    if mod: strs['11'] = os.path.dirname(mod)   # LDID 11, the system directory (LocalizedString's @%11%\shell32.dll,-8964): the lifted modules' own
     cur = None
     for l in re.sub(r'\\[ \t]*\r?\n\s*', '', inf).splitlines():   # INF line continuations
         l = l.split(';')[0].strip() if not l.strip().startswith('"') else l.strip()
@@ -71,6 +71,9 @@ def main():
             # %SystemRoot%\System32\x.dll or a bare x.dll is the lifted module in DIR, never the host's
             val = re.sub(r'(?i)^(%SystemRoot%\\System32\\)?(\w+\.dll)',
                          lambda m: os.path.join(os.path.abspath(d), m.group(2)), val)
+            # so is a file in an INF directory (LDID 10/25 Windows, 11 System32): My Computer's %25%\Explorer.exe,0
+            val = re.sub(r'(?i)^%(?:10|11|25)%\\(\w+\.(?:dll|exe))',
+                         lambda m: os.path.join(os.path.abspath(d), m.group(1).lower()), val)
             at = root if hive.upper() == 'HKCR' else r'Software\pcrecomp\%s\HKLM' % box
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, at + '\\' + key) as k:
                 if fl & 1 and fl >> 16 == 3:                     # REG_BINARY, its bytes across the fields
