@@ -11,6 +11,9 @@ notepad: start, text typed into its edit control (WM_CHAR).
 calc: start, 12+3= pressed (WM_COMMAND with the buttons' IDs).
 The mines are the same in both (W2K_FIXED_TICK: winmine seeds with
 GetTickCount). Shots: shots/<run>_<build>_<t>.png.
+Event-driven (hiddenrun --settle): each step waits for the previous one to
+settle; the step times (x2) are only limits. sol's status bar (Time:, the host
+build's own clock) is left out of the check and the comparison.
 """
 import os, subprocess, sys
 import ctypes
@@ -46,11 +49,12 @@ for app, run, steps in RUNS:
     shots = [t for _, t, _ in steps]
     extra = sum((s for _, _, s in steps), [])
     for build in (app, 'nt' + app):
-        cmd = [sys.executable, os.path.join(ROOT, 'tools', 'hiddenrun.py'), '--secs', str(int(max(shots)) + 2)]
+        cmd = [sys.executable, os.path.join(ROOT, 'tools', 'hiddenrun.py'), '--secs', str(int(2 * max(shots)) + 4),
+               '--settle', '--scale', '2', '--hold', '1.5'] + (['--still-crop', '26'] if app == 'sol' else [])   # event-driven: the step times (x2) are only limits
         for t in shots:
             cmd += ['--shot', str(t)]
         cmd += extra + ['--out', os.path.join(ROOT, 'shots', '%s_%s' % (run, build)), '--',
-                        os.path.join(ROOT, 'build', build + '.exe'), '--mute', '--watchdog', str(int(max(shots)) + 1)]
+                        os.path.join(ROOT, 'build', build + '.exe'), '--mute', '--watchdog', str(int(2 * max(shots)) + 3)]
         r = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
         open(os.path.join(ROOT, "shots", "%s_%s.out" % (run, build)), "w").write(r.stdout + r.stderr)   # hiddenrun's timeline, for a missing shot
 for app, name, t, run in ((app, n, t, r) for app, r, steps in RUNS for n, t, _ in steps):
@@ -64,5 +68,7 @@ for app, name, t, run in ((app, n, t, r) for app, r, steps in RUNS for n, t, _ i
     if A.size != B.size:
         print('%-8s %-13s sizes differ: %s vs %s' % (app, name, A.size, B.size))
         continue
+    if app == 'sol':   # the status bar's "Time:" runs on the host build's own clock (W2K_FIXED_TICK freezes only the lifted one)
+        A, B = (I.crop((0, 0, I.size[0], I.size[1] - 26)) for I in (A, B))
     n = sum(1 for p in ImageChops.difference(A, B).get_flattened_data() if p != (0, 0, 0))
     print('%-8s %-13s %dx%d, %d pixels differ' % (app, name, A.size[0], A.size[1], n))

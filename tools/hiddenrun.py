@@ -122,8 +122,14 @@ def main():
     ap.add_argument('--dlgcommand', action='append', default=[], help='ID@T: WM_COMMAND ID posted to the top window')
     ap.add_argument('--drag', action='append', default=[], help='X1,Y1,X2,Y2@T: a left-button drag in the main '
                     'window client coordinates, posted to the deepest child under X1,Y1')
+    ap.add_argument('--settle', action='store_true', help='event-driven: each step waits until the previous one '
+                    'has settled (WM_NULL answered, nothing left to paint, pixels held --hold s); step times are limits')
+    ap.add_argument('--hold', type=float, default=0.5)
+    ap.add_argument('--still-crop', type=int, default=0, help='with --settle: leave this many bottom rows out of '
+                    'the pixel check (a status bar clock, as the Time: of sol)')
+    ap.add_argument('--scale', type=float, default=1, help='with --settle: each step limit is its time x this')
     ap.add_argument('cmd', nargs=argparse.REMAINDER)
-    a = ap.parse_args()
+    a = ap.parse_args(); a.stop = False
     cmd = a.cmd[1:] if a.cmd[:1] == ['--'] else a.cmd
     name = 'pcrecomp_hidden'
     desk = u32.CreateDesktopW(name, None, None, 0, 0x10000000, None)
@@ -133,68 +139,101 @@ def main():
     p = launch(cmd, name, a.out + '.log')
     t0 = time.time()
     import threading
-    th = threading.Thread(target=shots, args=(a, p, desk, t0)); th.start()   # joined after the input loop
-    ended = False
-    posts = sorted([(float(c.split('@')[1]), 'click', c.split('@')[0]) for c in a.click] +
-                   [(float(c.split('@')[1]), 'cmd', c.split('@')[0]) for c in a.command] +
-                   [(float(c.split('@')[1]), 'post', c.split('@')[0]) for c in a.post] +
-                   [(float(c.split('@')[1]), 'type', c.split('@')[0]) for c in a.type] +
-                   [(float(c.split('@')[1]), 'dlgcmd', c.split('@')[0]) for c in a.dlgcommand] +
-                   [(float(c.split('@')[1]), 'drag', c.split('@')[0]) for c in a.drag])
-    while time.time() - t0 < a.secs and p.poll() is None:
-        while posts and time.time() - t0 >= posts[0][0]:
-            _, kind, what = posts.pop(0)
-            ws = windows_of(p.pid, desk)
-            main_w = ws[-1] if ws else None          # top-level, bottom of the z-order: the main window
-            if main_w and kind == 'click':
-                x, y = map(int, what.split(','))
-                lp = (y << 16) | (x & 0xFFFF)
-                u32.PostMessageW(main_w, 0x0201, 1, lp)   # WM_LBUTTONDOWN, MK_LBUTTON
-                u32.PostMessageW(main_w, 0x0202, 0, lp)   # WM_LBUTTONUP
-            elif main_w and kind == 'drag':
-                x1, y1, x2, y2 = map(int, what.split(','))
-                u32.ChildWindowFromPointEx.restype = W.HWND
-                h, pt = main_w, W.POINT(x1, y1)
-                while True:   # down to the deepest visible child (pt in h's client coordinates)
-                    c = u32.ChildWindowFromPointEx(h, pt, 1)
-                    if not c or c == h: break
-                    u32.MapWindowPoints(h, c, ctypes.byref(pt), 1); h = c
-                dx, dy = pt.x - x1, pt.y - y1
-                for i in range(11):
-                    x, y = x1 + (x2 - x1) * i // 10 + dx, y1 + (y2 - y1) * i // 10 + dy
-                    lp = ((y & 0xFFFF) << 16) | (x & 0xFFFF)
-                    u32.PostMessageW(h, 0x0201 if i == 0 else 0x0200, 1, lp)   # WM_LBUTTONDOWN, then WM_MOUSEMOVE
-                u32.PostMessageW(h, 0x0202, 0, lp)                              # WM_LBUTTONUP
-            elif ws and kind == 'type':
-                cid, text = what.split('=', 1)
-                u32.GetDlgItem.restype = W.HWND
-                e = u32.GetDlgItem(ws[0], int(cid, 0))
-                u32.FindWindowExW.restype = W.HWND
-                for _ in range(3):                                       # a combo box: its Edit (Open dialog)
-                    sub = u32.FindWindowExW(e, None, 'Edit', None) or u32.FindWindowExW(e, None, 'ComboBox', None)
-                    if not sub: break
-                    e = sub
-                u32.PostMessageW(e, 0x00B1, 0, -1)                    # EM_SETSEL all
-                for ch in text: u32.PostMessageW(e, 0x0102, ord(ch), 1)  # WM_CHAR
-            elif ws and kind == 'dlgcmd':
-                u32.PostMessageW(ws[0], 0x0111, int(what, 0), 0)
-            elif main_w and kind == 'post':
-                m, wp, lp = (int(v, 0) for v in what.split(','))
-                u32.PostMessageW(main_w, m, wp, lp)
-            elif main_w:
-                u32.PostMessageW(main_w, 0x0111, int(what, 0), 0)   # WM_COMMAND
-            print(f'{time.time() - t0:.1f}s: {kind} {what}')
-        if a.end_at is not None and not ended and time.time() - t0 >= a.end_at:
-            ended = True
-            for h in ([a.preview_hwnd] if a.preview else windows_of(p.pid, desk)):
-                if a.preview: u32.PostMessageW(h, 0x0010, 0, 0)                 # WM_CLOSE
-                else: u32.PostMessageW(h, 0x0100, 0x20, 0x00390001)             # WM_KEYDOWN space
-            print(f'{a.end_at}s: ended')
+    th = threading.Thread(target=timeline, args=(a, p, desk, t0)); th.start()
+    while th.is_alive() and time.time() - t0 < a.secs and p.poll() is None:
         time.sleep(0.2)
-    th.join()
+    a.stop = True; th.join()
     print('exit', p.poll(), f'after {time.time() - t0:.1f}s')
     subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
     u32.CloseDesktop(desk)
+
+
+def send_input(a, p, desk, kind, what):
+    ws = windows_of(p.pid, desk)
+    main_w = ws[-1] if ws else None          # top-level, bottom of the z-order: the main window
+    if kind == 'end':
+        for h in ([a.preview_hwnd] if a.preview else ws):
+            if a.preview: u32.PostMessageW(h, 0x0010, 0, 0)                 # WM_CLOSE
+            else: u32.PostMessageW(h, 0x0100, 0x20, 0x00390001)             # WM_KEYDOWN space
+    elif main_w and kind == 'click':
+        x, y = map(int, what.split(','))
+        lp = (y << 16) | (x & 0xFFFF)
+        u32.PostMessageW(main_w, 0x0201, 1, lp)   # WM_LBUTTONDOWN, MK_LBUTTON
+        u32.PostMessageW(main_w, 0x0202, 0, lp)   # WM_LBUTTONUP
+    elif main_w and kind == 'drag':
+        x1, y1, x2, y2 = map(int, what.split(','))
+        u32.ChildWindowFromPointEx.restype = W.HWND
+        h, pt = main_w, W.POINT(x1, y1)
+        while True:   # down to the deepest visible child (pt in h's client coordinates)
+            c = u32.ChildWindowFromPointEx(h, pt, 1)
+            if not c or c == h: break
+            u32.MapWindowPoints(h, c, ctypes.byref(pt), 1); h = c
+        dx, dy = pt.x - x1, pt.y - y1
+        for i in range(11):
+            x, y = x1 + (x2 - x1) * i // 10 + dx, y1 + (y2 - y1) * i // 10 + dy
+            lp = ((y & 0xFFFF) << 16) | (x & 0xFFFF)
+            u32.PostMessageW(h, 0x0201 if i == 0 else 0x0200, 1, lp)   # WM_LBUTTONDOWN, then WM_MOUSEMOVE
+        u32.PostMessageW(h, 0x0202, 0, lp)                              # WM_LBUTTONUP
+    elif ws and kind == 'type':
+        cid, text = what.split('=', 1)
+        u32.GetDlgItem.restype = W.HWND
+        e = u32.GetDlgItem(ws[0], int(cid, 0))
+        u32.FindWindowExW.restype = W.HWND
+        for _ in range(3):                                       # a combo box: its Edit (Open dialog)
+            sub = u32.FindWindowExW(e, None, 'Edit', None) or u32.FindWindowExW(e, None, 'ComboBox', None)
+            if not sub: break
+            e = sub
+        u32.PostMessageW(e, 0x00B1, 0, -1)                    # EM_SETSEL all
+        for ch in text: u32.PostMessageW(e, 0x0102, ord(ch), 1)  # WM_CHAR
+    elif ws and kind == 'dlgcmd':
+        u32.PostMessageW(ws[0], 0x0111, int(what, 0), 0)
+    elif main_w and kind == 'post':
+        m, wp, lp = (int(v, 0) for v in what.split(','))
+        u32.PostMessageW(main_w, m, wp, lp)
+    elif main_w and kind == 'cmd':
+        u32.PostMessageW(main_w, 0x0111, int(what, 0), 0)   # WM_COMMAND
+
+
+def busy(h):
+    """h or a visible child has something left to paint, or h's thread does
+    not answer a sent WM_NULL within 250 ms."""
+    r = ctypes.c_size_t()
+    if not u32.SendMessageTimeoutW(h, 0, 0, 0, 0x3, 250, ctypes.byref(r)):   # SMTO_BLOCK|SMTO_ABORTIFHUNG
+        return True
+    if u32.GetUpdateRect(h, None, 0):
+        return True
+    left = []
+    cb = ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
+    def f(c, _):
+        if u32.IsWindowVisible(c) and u32.GetUpdateRect(c, None, 0): left.append(c)
+        return True
+    u32.EnumChildWindows(h, cb(f), 0)
+    return bool(left)
+
+
+def settle(a, p, desk, deadline):
+    """Wait until the run's windows exist, answer WM_NULL, have nothing left
+    to paint, and show the same pixels as at least a.hold seconds before (a
+    capture that differs and then comes back, as PrintWindow sometimes reads
+    a grid mid-repaint, does not restart the wait); or until the deadline.
+    The settled image, or None."""
+    seen = []   # (time, checked crop, image, key) since the windows were last busy
+    u32.WaitForInputIdle(p.h, max(0, int((deadline - time.time()) * 1000)))   # start-up: the first idle (later calls return at once)
+    while time.time() < deadline and p.poll() is None and not a.stop:
+        hs = [a.preview_hwnd] if a.preview else windows_of(p.pid, desk)
+        if not hs or any(busy(h) for h in hs):
+            seen = []; time.sleep(0.1); continue
+        img, now = compose(hs), time.time()
+        if img is not None:
+            c = img.crop((0, 0, img.size[0], max(1, img.size[1] - a.still_crop)))
+            seen.append((now, c, img, (c.size, c.tobytes())))
+            if any(now - t >= a.hold and k == seen[-1][3] for t, _, _, k in seen[:-1]):
+                # the capture seen most often: PrintWindow reads some windows
+                # (packager's panes) half-drawn now and then, whatever the wait
+                keys = [k for *_, k in seen]
+                return max(seen, key=lambda e: keys.count(e[3]))[2]
+        time.sleep(0.1)
+    return None
 
 
 class GUITHREADINFO(ctypes.Structure):
@@ -216,13 +255,44 @@ def in_menu(h):
     return bool(u32.GetGUIThreadInfo(u32.GetWindowThreadProcessId(h, None), ctypes.byref(g)) and g.flags & 4)
 
 
-def shots(a, p, desk, t0):
+def compose(hs):
+    shots = [grab(h) for h in hs]
+    shots = [s for s in shots if s[0]]
+    if not shots:
+        return None
+    x0 = min(r.left for _, r in shots); y0 = min(r.top for _, r in shots)
+    W_ = max(r.right for _, r in shots) - x0; H_ = max(r.bottom for _, r in shots) - y0
+    canvas = Image.new('RGB', (W_, H_))
+    for img, r in reversed(shots):   # EnumWindows is top-first; paint bottom-up
+        canvas.paste(img, (r.left - x0, r.top - y0))
+    return canvas
+
+
+def timeline(a, p, desk, t0):
     # GDI reads across desktops come back black: capture from a thread that
-    # has joined the hidden desktop.
+    # has joined the hidden desktop. Inputs and shots run here as one ordered
+    # list. With --settle each step first waits for the previous one to
+    # settle, and its time (x --scale) is only an upper limit; without, each
+    # fires at its time.
     u32.SetThreadDesktop(W.HANDLE(desk))
-    for t in sorted(a.shot):
-        while time.time() - t0 < t and p.poll() is None:
-            time.sleep(0.1)
+    ev = sorted([(float(c.split('@')[1]), 1, k, c.split('@')[0]) for opt, k in
+                 ((a.click, 'click'), (a.command, 'cmd'), (a.post, 'post'), (a.type, 'type'),
+                  (a.dlgcommand, 'dlgcmd'), (a.drag, 'drag')) for c in opt] +
+                [(t, 0, 'shot', '') for t in a.shot] +
+                ([(a.end_at, 2, 'end', '')] if a.end_at is not None else []))
+    for t, _, kind, what in ev:
+        if a.settle:
+            img = settle(a, p, desk, t0 + t * a.scale)
+            how = 'settled' if img else 'LIMIT'
+        else:
+            how, img = 'at time', None
+            while time.time() - t0 < t and p.poll() is None and not a.stop:
+                time.sleep(0.05)
+        if p.poll() is not None or a.stop:
+            print(f'{t}s: process gone before {kind}'); return
+        stamp = f'{t}s at {time.time() - t0:.1f}s ({how})'
+        if kind != 'shot':
+            send_input(a, p, desk, kind, what); print(f'{stamp}: {kind} {what}'); continue
         hs = [a.preview_hwnd] if a.preview else windows_of(p.pid, desk)
         # the top window active, so its menu bar and caption are drawn active
         # whatever the run's timing left (an inactive menu bar: a flake)
@@ -236,20 +306,17 @@ def shots(a, p, desk, t0):
             for _ in range(20):
                 if active_of(hs[0]) == hs[0]: break
                 time.sleep(0.05)
-            time.sleep(0.3)
+            if a.settle: img = settle(a, p, desk, time.time() + 3)
+            else: time.sleep(0.3)
             hs = windows_of(p.pid, desk)
-        shots = [grab(h) for h in hs]
-        shots = [s for s in shots if s[0]]
+        canvas = img or compose(hs)   # the settled pixels, not a fresh read that may catch a repaint
+        if canvas is None:
+            print(f'{stamp}: no window'); continue
         if os.environ.get('HIDDENRUN_RECTS'):
-            for _, r in shots: print(f'  window {r.left},{r.top} {r.right - r.left}x{r.bottom - r.top}')
-        if not shots:
-            print(f'{t}s: no window'); continue
-        x0 = min(r.left for _, r in shots); y0 = min(r.top for _, r in shots)
-        W_ = max(r.right for _, r in shots) - x0; H_ = max(r.bottom for _, r in shots) - y0
-        canvas = Image.new('RGB', (W_, H_))
-        for img, r in reversed(shots):   # EnumWindows is top-first; paint bottom-up
-            canvas.paste(img, (r.left - x0, r.top - y0))
-        path = f'{a.out}_{int(t)}.png'; canvas.save(path); print(f'{t}s: {path} {canvas.size}')
+            for h in hs:
+                r = W.RECT(); u32.GetWindowRect(h, ctypes.byref(r))
+                print(f'  window {r.left},{r.top} {r.right - r.left}x{r.bottom - r.top}')
+        path = f'{a.out}_{int(t)}.png'; canvas.save(path); print(f'{stamp}: {path} {canvas.size}')
 
 
 if __name__ == '__main__':
