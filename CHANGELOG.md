@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- packager pixel-identical on lifted user32 (the guest's DrawTextA answered by
+  the host's). mspaint and wordpad targets (Windows 2000's mfc42u and riched20
+  lifted on both builds); mspaint starts and draws a line on lifted user32
+  (not yet pixel-identical); wordpad blocked on one riched20 function the
+  catalog misses. `hiddenrun.py --drag`.
 - sol and freecell draw every card on lifted user32 (0 pixels): win32k's
   `__ClientThreadSetup` callback (user32 makes ghdcBits2 there),
   NtGdiGetDCforBitmap answered from SelectBitmap, NtGdiSaveDC/RestoreDC.
