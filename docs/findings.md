@@ -1601,3 +1601,19 @@ HKCU\Software\pcrecomp\w2k\explorer).
 Last shot shots/exp/f1_27.png: desktop + taskbar, Start button focused; My
 Computer's label paints black after the click (seen before, a listview
 label redraw, not looked at).
+
+### Start menu still not shown (handoff)
+
+pcrecomp (after eb68b5f): user32's exports confirm CallHwndLock 0x4D is
+SetForegroundWindow and CallOneParam 0x21 LockSetForegroundWindow; both now
+answered in the guest (0x4D: SetActiveWindow inside the virtual screen). The
+Start menu still does not appear (m1, 19 s after the click). Next: trace from
+the tray's WM_COMMAND 0x130 (the Start button) through CStartMenu /
+IMenuPopup::Popup to the BaseBar's SetWindowPos/ShowWindow, which never comes;
+check NtUserDeleteMenu/RemoveMenu (unshimmed, answer 0) and whether the popup
+runs on a thread that is waiting. Then Run -> winmine, the Start logo and the clock.
+
+Registry snapshots now in work/regsnap (ignored by git): before/after one
+explorer run differ only in Win11's own SessionInfo\...\W32: record for a
+window that closed (the host's tracking, as in earlier runs); Control Panel
+and Policies unchanged.
