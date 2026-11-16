@@ -532,6 +532,12 @@ ole32 and imm32 (all failing or empty).
 - NtGdiGetRandomRgn
 - NtGdiGetLayout (no service name)
 
+Since then (pcrecomp `w2k-linux`): NtUserGetThreadState (0 focus,
+1 active, 2 capture) and NtUserGetIconSize are answered. The shot is still
+6x25, and W2K_TRACE logs no window creation, so the next run needs a trace
+of NtUserCreateWindowEx/ShowWindow (class, style, size) to see where MFC's
+frame goes.
+
 ### Next
 
 1. Answer the services above, then find out why MFC's frame stays 6x25. Start
