@@ -1343,3 +1343,34 @@ Next:
    unanswered), then the Start menu and Run -> winmine.
 Still unanswered and left alone on purpose: NtUserSetShellWindowEx,
 RegisterHotKey, SendNotifyMessage(HWND_BROADCAST).
+
+### interact under load: what an idle wait can and cannot fix (handoff)
+
+Tried in hiddenrun, before each shot (not committed; it made sol worse):
+1. WaitForInputIdle on each window's process plus no GetUpdateRect on any
+   window or child. Changed nothing: WaitForInputIdle only reports a
+   process's *first* idle.
+2. A sent WM_NULL answered (SendMessageTimeout, SMTO_BLOCK|ABORTIFHUNG) plus
+   no update region. Also nothing: the late states have no pending paint.
+3. Plus the same pixels in three captures 0.25 s apart, 4 s limit. notepad
+   start went to 0, but the host sol never settled within 4 s, and the
+   delayed shot pushed past the process's lifetime (missing shot).
+
+What the repeat diffs really are (machine ~66% busy):
+- sol 6593 every time: the **host** build (stage 1) is still animating its
+  deal at 8-10 s (the 7th pile's top card not yet turned); the lifted one
+  has finished.
+- notepad start 33262: the host notepad hasn't added its scrollbars yet at
+  9 s (it is pumping and has nothing to paint).
+So the lag is the app's own progress, and the fixed-time inputs (sol's
+deck click at 9 s, freecell's clicks) land in a different game state.
+Gating shots alone cannot make this deterministic.
+
+Next (design): make hiddenrun's timeline event-driven. Each step (input or
+shot) waits for the previous one to settle (WM_NULL answered, no update
+region, pixels steady for ~0.5 s, ignoring a status-bar clock such as sol's
+"Time:" by comparing everything but the bottom 20 rows, or by running with
+W2K_FIXED_TICK, which already freezes the lifted build's clock but not the
+host's) instead of firing at a fixed second, with --secs as an overall
+limit only. interact.py's step lists keep their order; the times become
+upper bounds.
