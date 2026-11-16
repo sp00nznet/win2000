@@ -99,6 +99,11 @@ def preview_window(desk, w, h):
 
 
 def main():
+    # No loader or fault box from a child may reach the user's real desktop
+    # (csrss shows "Entry Point Not Found" on the interactive desktop whatever
+    # desktop the child runs on): FAILCRITICALERRORS | NOGPFAULTERRORBOX |
+    # NOOPENFILEERRORBOX, inherited by every child (no CREATE_DEFAULT_ERROR_MODE).
+    k32.SetErrorMode(0x8003)
     ap = argparse.ArgumentParser()
     ap.add_argument('--secs', type=float, default=30)
     ap.add_argument('--shot', type=float, action='append', default=[])

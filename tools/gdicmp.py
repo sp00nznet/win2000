@@ -7,6 +7,8 @@ Shots in shots/cmp_<app>_host.png, shots/cmp_<app>_gdi.png, the difference in
 shots/cmp_<app>_diff.png. Runs on hiddenrun's private desktop, muted.
 """
 import os, subprocess, sys
+import ctypes
+ctypes.windll.kernel32.SetErrorMode(0x8003)   # no loader/fault box on the real desktop (inherited)
 from PIL import Image, ImageChops
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

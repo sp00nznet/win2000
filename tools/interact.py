@@ -13,6 +13,8 @@ The mines are the same in both (W2K_FIXED_TICK: winmine seeds with
 GetTickCount). Shots: shots/<run>_<build>_<t>.png.
 """
 import os, subprocess, sys
+import ctypes
+ctypes.windll.kernel32.SetErrorMode(0x8003)   # no loader/fault box on the real desktop (inherited)
 from PIL import Image, ImageChops
 Image.MAX_IMAGE_PIXELS = None
 
