@@ -1820,3 +1820,64 @@ after5.txt (after the last, final_24): identical (work/regsnap/snap.sh, the
 four keys). The guest wrote only to its box.
 
 Next: the Start menu's own input (above), then mydocs.dll / My Computer's icon.
+
+### The Start menu takes real clicks (handoff)
+
+pcrecomp 8c6700f (w2k). shots/exp (local): m20_8.png (Start menu open from a
+click), m14_19.png (Run dialog opened by a click on the Run item, menu closed),
+m20_23.png / m18_21.png (OK -> winmine framed, its taskbar button), m21_23.png
+(My Computer selected on the desktop by a click).
+
+**sol 6593: no regression.** Rerun: the lifted ntsol turns the 7th pile's card,
+the stage-1 host sol.exe doesn't (as noted before). The stage-1 reference
+fails to turn it some runs and not others (0 in the final run here).
+
+**Root cause.** browseui's menu filter (CMBMsgFilter, WH_GETMESSAGE hook at
+browseui 20D16197) only handles mouse messages while its flags at 0x20D7A158
+have bit 0x10 set, which it sets on SetForegroundWindow(tray) and clears when
+the tray gets WM_ACTIVATE(WA_INACTIVE) (IsMenuMessage, 20D020EE). Found with
+`--poison 0x20D7A158` next to NATIVE32_SYSCALLS. The tray lost activation as
+soon as explorer created any top-level window: SetParent onto the screen makes
+the host activate it. Fixes:
+- s_create_window: a thread WH_CBT hook refuses HCBT_ACTIVATE around the
+  SetParent (win32k never activates at create).
+- NtUserGetThreadState 0/1/2 = the host's GetFocus/GetActiveWindow/GetCapture
+  (guest HWNDs are host HWNDs); SERVERINFO+0x864 (cCaptures) = 1 so GetCapture
+  asks.
+- The click then opened the Run dialog on its own thread, which hung in
+  SetActiveWindow: NtUserAttachThreadInput had merged its host queue with the
+  tray thread's, and the activation became a send to the tray thread, which
+  was waiting for the dialog. Attach is now answered without merging.
+- SPI_GETSELECTIONFADE is FALSE on the virtual screen: the chosen item's fade
+  thread spun on UpdateLayeredWindow (a host child cannot be layered).
+- explorer's own captioned, non-tool, unowned windows are tasks in shell_poll
+  (own_task). Untested: a desktop double-click on My Computer selects it but
+  opens no window yet.
+
+Driven by run_explorer.sh with real clicks only: `--drag 35,580,35,580@6`
+(Start), `--drag 90,509,90,509@10` (Run), `--childpost '#32770:0x111,1,0@14'`
+(OK). No WM_COMMAND 0x191 any more.
+
+**Gap: winmine's caption and menu bar stay grey.** The host has it active
+(GetActiveWindow == it) but sends WM_NCACTIVATE(FALSE) while activating:
+winmine's queue is not the desktop's foreground queue (another process). An
+explicit SetActiveWindow + DefWindowProcW(WM_NCACTIVATE, TRUE) after
+ShowWindow changed nothing (reverted). Next: give the launched program's
+queue the foreground on the private desktop, or attach its input to the
+screen thread (watch for the deadlock above).
+Also: the selected My Computer icon draws black (selection blend).
+
+interact (all 8, after the runtime change): every state 0, including sol
+deck click, freecell, packager and wordpad (an own_task-only change followed;
+it runs only with a shell hook registered, so the 8 apps don't reach it).
+Run twice: once with GetThreadState only (packager 10637 / wordpad 337/930
+at their known flake values, sol 0), once with all fixes (all 0).
+
+Registry: work/regsnap/before6.txt / after6.txt. Differences only Win11's own:
+UserAssist counters (Terminal, Chrome, Cortana) and GlobalAssocChangedCounter.
+Control Panel and both Policies unchanged; the guest wrote only to its box.
+
+Not started: mydocs.dll (needs adding to tools/lift_explorer.sh and a full
+relift), My Computer's icon (generic icon: shell32 index lookup).
+Next: a folder window opened by double-click (why the listview's DBLCLK does
+nothing), then the launched program's active frame, then mydocs.dll.
