@@ -108,6 +108,12 @@ static int host_main(int argc, char** argv) {
     }
     if (getenv("W2K_FIXED_TIME")) native32_redirect("time", (void*)fixed_time);
     if (getenv("W2K_FIXED_TICK")) native32_redirect("GetTickCount", (void*)fixed_tick);   /* a repeatable deal (tools/gdicmp.py) */
+    {   /* the guest never writes the user's registry: HKCU\Software\pcrecomp\w2k\<app> (pcrecomp regbox32.c) */
+        char box[64] = "w2k\\";
+        strncat(box, APP_EXE, 40);
+        *strrchr(box, '.') = 0;
+        if (!native32_registry_sandbox(box)) { fprintf(stderr, "no registry sandbox: not running\n"); return 1; }
+    }
     native32_init();
     AddVectoredExceptionHandler(0, crash);
     if (!native32_modules_map(dir, dir, g_mods, NMODS)) return 1;

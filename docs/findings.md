@@ -901,3 +901,55 @@ system setting, but a guest writing the user's registry): route the guest's
 HKCU to a private hive next. NtUserCallNoParam 0x12 still unanswered; window
 origin/extents in DC_ATTR not applied; a style change that shows a window is
 not passed on.
+
+## The guest's registry: a private hive (regbox32)
+
+Stage 1 wordpad/mspaint (and notepad, freecell, winmine) went through the host
+advapi32 and wrote the user's live HKCU. Every guest registry write now lands
+in `HKCU\Software\pcrecomp\w2k\<app>\{HKCU,HKLM,NT,INI}` (pcrecomp
+regbox32.c, installed by apphost.c and nthost.c; a host that can't make the
+key refuses to run):
+
+- create: always in the box (the real NT path mapped under it);
+- open: the box's key if it exists, else the real key with write access
+  stripped (every real handle the guest holds is read-only);
+- set/delete value, delete key: mapped by the handle's path (NtQueryKey) to
+  the box, never the real key; value reads try the box first, then the real;
+- RegSave/Restore/Load/Replace/UnLoadKey, SetKeySecurity, OverridePredefKey,
+  ConnectRegistry, DeleteTree/KeyEx, SetKeyValue, transacted: refused;
+- profiles: Write/GetProfileString(Int), Write/GetPrivateProfileString(Int)
+  for win.ini or a Windows-directory/bare .ini go to `INI\<file>\<section>`;
+  WriteProfileSection/PrivateProfileSection/Struct refused;
+- lifted builds: the guest ntdll's NtCreateKey/OpenKey/SetValueKey/
+  DeleteKey/DeleteValueKey/QueryValueKey follow the same rule (NtSaveKey,
+  NtLoadKey, NtSetInformationKey... refused), the proxied host advapi32's
+  Reg* exports are hooked, and the lifted kernel32's profile exports replaced.
+
+Checked: a snapshot of Applets, winmine, Notepad and Windows NT\...\Windows
+(keys, values, last-write times) is identical before and after two full
+interact runs; win.ini untouched; the creates show up under the box.
+
+Existing keys found on this machine (not touched; the user decides):
+
+| HKCU key | last write | values |
+|---|---|---|
+| ...\Applets\Wordpad (+ IP, Options, Recent File List, RTF, Settings, Text, Word6, Write) | 2026-11-15 20:23:59 | none (empty keys) |
+| ...\Applets\Paint | 2026-11-15 20:15:18 | none |
+| ...\Applets\Paint\General-Summary | 2026-11-15 20:15:18 | none |
+| ...\Applets\Paint\Colors, Recent File List, Settings, Text, View | 2026-11-15 20:14:08 | none |
+| ...\Applets\FreeCell | 2026-11-15 12:50:26 | lost/won/losses/wins/streak/stype 0, AlreadyPlayed 1 |
+| Software\Microsoft\winmine | 2026-11-15 12:46:34 | Difficulty 0, 9x9, 10 mines, Mark 1, AlreadyPlayed 1, Color 1, Sound 0, Xpos/Ypos 80, Time1-3 999, Name1-3 Anonymous |
+| Software\Microsoft\Notepad | 2026-11-15 12:47:36 | none |
+| ...\Applets\Regedit (2026-10-12), SysTray (2026-09-08) | older | the user's own |
+
+Also: NtUserCallNoParam 0x12 is asked by user32's ClientThreadSetup (1 skips
+its client-side setup), answered 0; DC_ATTR window origin +0x174, window
+extent +0x17C, viewport extent +0x18C filled and applied (extents only in
+MM_ISOTROPIC/ANISOTROPIC); a GWL_STYLE that sets WS_VISIBLE the WND lacks
+passes on (a show). All 8 apps 0 in interact (freecell 949/4790 once, 0 on
+rerun: the known flake).
+
+Gaps: host DLLs in the process (comdlg32 MRU, shell32, shlwapi SHSetValue)
+call the host advapi32 directly and are not boxed; RegEnum* see one side;
+deleting a value that exists only in the real key is a no-op; A profile reads
+skip the box.

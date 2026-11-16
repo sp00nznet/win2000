@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- The guest never writes the user's registry: every Reg*/NtXxxKey/profile write goes to
+  HKCU\Software\pcrecomp\w2k\<app> (pcrecomp regbox32.c), reads fall through read-only.
+  NtUserCallNoParam 0x12, DC_ATTR window origin/extents, WS_VISIBLE shows.
 - wordpad and mspaint pixel-identical on lifted user32 + gdi32 (`interact.py`
   wordpad start/typed, mspaint start/line: 0; wordpad's typed state can show a
   16-pixel caret in one build only, blink phase). riched20's vtable-only

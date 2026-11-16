@@ -16,7 +16,7 @@ function(w2k_host name main)
     message(STATUS "${name}: not lifted, skipped")
     return()
   endif()
-  add_executable(${name} ${main} ${N32}/native32.c ${N32}/modules32.c
+  add_executable(${name} ${main} ${N32}/native32.c ${N32}/modules32.c ${N32}/regbox32.c
                  ${PCRECOMP}/runtime/recomp32/image_loader.c ${PCRECOMP}/runtime/recomp32/recomp_trace.c ${ARGN})
   pcrecomp_gen_sources(${name} DIR ${CMAKE_SOURCE_DIR}/src/gen/${name})
   target_include_directories(${name} PRIVATE src src/gen/${name} ${N32} ${PCRECOMP}/runtime/recomp32)

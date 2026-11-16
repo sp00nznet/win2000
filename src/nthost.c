@@ -117,6 +117,27 @@ static void fixed_tick(void) {
     g_esp += 4;
 }
 
+/* A guest stdcall export answered by the registry sandbox's function of that
+ * name (pcrecomp regbox32.c), n arguments. */
+static void sandbox_call(const char* name, int n) {
+    uint32_t* a = (uint32_t*)(uintptr_t)(g_esp + 4);
+    void* f = native32_registry_sandbox_fn(name);
+    typedef uint32_t (WINAPI *f2)(uint32_t, uint32_t);
+    typedef uint32_t (WINAPI *f3)(uint32_t, uint32_t, uint32_t);
+    typedef uint32_t (WINAPI *f4)(uint32_t, uint32_t, uint32_t, uint32_t);
+    typedef uint32_t (WINAPI *f5)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+    typedef uint32_t (WINAPI *f6)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+    g_eax = !f ? 0 : n == 2 ? ((f2)f)(a[0], a[1]) : n == 3 ? ((f3)f)(a[0], a[1], a[2])
+          : n == 4 ? ((f4)f)(a[0], a[1], a[2], a[3]) : n == 5 ? ((f5)f)(a[0], a[1], a[2], a[3], a[4])
+          : ((f6)f)(a[0], a[1], a[2], a[3], a[4], a[5]);
+    g_esp += 4 + 4 * n;
+}
+#define PS(name, n) static void ps_##name(void) { sandbox_call(#name, n); }
+PS(WriteProfileStringW, 3) PS(WriteProfileStringA, 3) PS(WritePrivateProfileStringW, 4) PS(WritePrivateProfileStringA, 4)
+PS(GetProfileStringW, 5) PS(GetPrivateProfileStringW, 6) PS(GetProfileIntW, 3) PS(GetPrivateProfileIntW, 4)
+PS(WriteProfileSectionW, 2) PS(WriteProfileSectionA, 2) PS(WritePrivateProfileSectionW, 3) PS(WritePrivateProfileSectionA, 3)
+PS(WritePrivateProfileStructW, 5) PS(WritePrivateProfileStructA, 5)
+
 #if defined(W2K_USER_LAYER)
 /* The guest's AdjustWindowRectEx(RECT*, style, bMenu, exstyle) answered by
  * the host's: a window sized from its client area afterwards (sol) gets the
@@ -224,6 +245,13 @@ static int host_main(int argc, char** argv) {
         native32_hold_image(exe, EXE_BASE);
         MultiByteToWideChar(CP_ACP, 0, exe, -1, image, MAX_PATH);
     }
+    {   /* the guest never writes the user's registry: HKCU\Software\pcrecomp\w2k\<app> (pcrecomp regbox32.c) */
+        char box[64] = "w2k\\";
+        strncat(box, W2K_EXE, 40);
+        *strrchr(box, '.') = 0;
+        if (!native32_registry_sandbox(box)) { fprintf(stderr, "no registry sandbox: not running\n"); return 1; }
+        native32_registry_sandbox_nt(native32_nt_override, native32_nt_forward, native32_nt_proxy_hook);
+    }
     native32_init();
     AddVectoredExceptionHandler(0, crash);
     /* Mapped, not bound: the guest's own loader snaps every import. */
@@ -305,6 +333,25 @@ static int host_main(int argc, char** argv) {
         if (g_cwp_a) native32_replace(native32_export(u, "CallWindowProcA"), host_cwp_a);
     }
 #endif
+    {   /* the lifted kernel32's profile calls (win.ini): the registry sandbox's */
+        static const struct { const char* name; recomp_func_t fn; } prof[] = {
+            { "WriteProfileStringW", ps_WriteProfileStringW }, { "WriteProfileStringA", ps_WriteProfileStringA },
+            { "WritePrivateProfileStringW", ps_WritePrivateProfileStringW },
+            { "WritePrivateProfileStringA", ps_WritePrivateProfileStringA },
+            { "GetProfileStringW", ps_GetProfileStringW }, { "GetPrivateProfileStringW", ps_GetPrivateProfileStringW },
+            { "GetProfileIntW", ps_GetProfileIntW }, { "GetPrivateProfileIntW", ps_GetPrivateProfileIntW },
+            { "WriteProfileSectionW", ps_WriteProfileSectionW }, { "WriteProfileSectionA", ps_WriteProfileSectionA },
+            { "WritePrivateProfileSectionW", ps_WritePrivateProfileSectionW },
+            { "WritePrivateProfileSectionA", ps_WritePrivateProfileSectionA },
+            { "WritePrivateProfileStructW", ps_WritePrivateProfileStructW },
+            { "WritePrivateProfileStructA", ps_WritePrivateProfileStructA },
+        };
+        uint32_t k32 = native32_module("kernel32.dll");
+        for (int i = 0; i < (int)(sizeof prof / sizeof prof[0]); i++) {
+            uint32_t va = native32_export(k32, prof[i].name);
+            if (va) native32_replace(va, prof[i].fn);
+        }
+    }
     if (getenv("W2K_FIXED_TICK"))
         native32_replace(native32_export(native32_module("kernel32.dll"), "GetTickCount"), fixed_tick);
     if (getenv("W2K_FIXED_TIME") && native32_module("msvcrt.dll"))
