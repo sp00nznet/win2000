@@ -178,6 +178,10 @@ def shots(a, p, desk, t0):
         while time.time() - t0 < t and p.poll() is None:
             time.sleep(0.1)
         hs = [a.preview_hwnd] if a.preview else windows_of(p.pid, desk)
+        # the top window active, so its menu bar and caption are drawn active
+        # whatever the run's timing left (an inactive menu bar: a flake)
+        if hs and not a.preview and u32.GetForegroundWindow() != hs[0]:
+            u32.SetForegroundWindow(hs[0]); time.sleep(0.3)
         shots = [grab(h) for h in hs]
         shots = [s for s in shots if s[0]]
         if os.environ.get('HIDDENRUN_RECTS'):

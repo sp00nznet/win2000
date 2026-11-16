@@ -582,12 +582,25 @@ keep Windows 2000's). Both 0 after that.
 | freecell | Game > New (500x480) | 0 |
 | freecell | a click on a column, then a free cell | 0 |
 
-**Caveat: neither build draws a card.** The stage 1 builds show the green
-table and the status line only, at 15 s too, and with PrintWindow flag 0 as
-well as PW_RENDERFULLCONTENT, so it is not the capture: the comparisons above
-cover the table, menus and status only. cards.dll's drawing on stage 1 is the
-next thing to look at (findings' stage 1 table says "deal drawn"; that was
-before the private desktop narrowed the window to 500 wide).
+**Caveat: neither build draws a card, because of the session's screen.** The
+stage 1 shot from the first day (shots/sol_5.png, 601x443) has the deal; today
+the session's display is 480x1131 (SM_CXSCREEN 480, portrait), so sol's
+window is clamped to 500 wide (its maximum tracking size; SetWindowPos to
+601 is clamped too) and on that client it draws no cards, in either build,
+whatever the capture (PrintWindow flags 0 and 2 alike). Nothing in the
+builds changed (W2K_FIXED_TIME off: the same). The sol/freecell comparisons
+cover table, menus and status until a run happens on a screen at least ~610
+wide; that is the session's display setting, not changed from here.
+
+**A host heap corruption** (0xC0000374 in 2 of 5 ntcalc starts): a GDI handle
+slot that had been a region (a 0x20-byte RGNATTR) was reused for a DC, whose
+attributes are memset to ATTR_SIZE. Region attributes are now ATTR_SIZE.
+Also answered: NtGdiGetRegionData, NtGdiGetDeviceWidth.
+
+**The inactive-menu flake**: hiddenrun activates the top window
+(SetForegroundWindow, 0.3 s) before a shot when it is not the foreground one.
+`interact.py` all five apps three times in a row and `gdicmp` on all five:
+all 0.
 
 Harness: `hiddenrun.py` captures with PrintWindow (PW_RENDERFULLCONTENT); the
 window DC is only there to make a compatible bitmap (a stale comment said

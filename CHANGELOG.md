@@ -54,6 +54,9 @@
   program's own windows (PrintWindow).
 
 ### Fixed
+- ntcalc's occasional heap corruption (a region's attributes too small when
+  its handle slot became a DC's; pcrecomp w32kgdi.c).
+- The inactive-menu flake: hiddenrun activates the top window before a shot.
 - `hiddenrun.py` skipped Windows 11's UAC input indicator windows, which it
   took for the program's top window (`--type`/`--dlgcommand` went nowhere);
   `interact.py` no longer compares stale shots.
