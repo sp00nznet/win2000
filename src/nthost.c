@@ -201,6 +201,23 @@ static void host_drawtexta(void) {
 }
 /* CallNextHookEx(hhk, code, wParam, lParam): Windows 2000's walks the
  * thread's hook chain client-side (CLIENTINFO); the hooks are the host's */
+/* MsgWaitForMultipleObjects(Ex): Windows 2000's asks win32k for the queue's
+ * input event (NtUserCallOneParam 0x1D, GetInputEvent) and waits on it with
+ * the caller's handles; the host queue has no such event to hand out, the
+ * call failed at once and explorer's tray loop spun. The guest's handles are
+ * the host's, so the host's own wait, with the machine given up. */
+static void host_msgwait(int ex) {
+    DWORD n = ARG(0), r;
+    HANDLE* h = (HANDLE*)(uintptr_t)ARG(1);
+    int held = mach_release();
+    r = ex ? MsgWaitForMultipleObjectsEx(n, h, ARG(2), ARG(3), ARG(4))
+           : MsgWaitForMultipleObjects(n, h, (BOOL)ARG(2), ARG(3), ARG(4));
+    mach_reacquire(held);
+    g_eax = r;
+    g_esp += 4 + 20;
+}
+static void host_msgwait_ex(void) { host_msgwait(1); }
+static void host_msgwait_all(void) { host_msgwait(0); }
 static void host_nexthook(void) {
     g_eax = (uint32_t)CallNextHookEx(NULL, (int)ARG(1), ARG(2), ARG(3));
     g_esp += 4 + 16;
@@ -426,6 +443,8 @@ static int host_main(int argc, char** argv) {
         native32_replace(native32_export(u, "DrawTextW"), host_drawtext);
         native32_replace(native32_export(u, "DrawTextA"), host_drawtexta);
         native32_replace(native32_export(u, "CallNextHookEx"), host_nexthook);
+        native32_replace(native32_export(u, "MsgWaitForMultipleObjectsEx"), host_msgwait_ex);
+        native32_replace(native32_export(u, "MsgWaitForMultipleObjects"), host_msgwait_all);
         native32_replace(native32_export(u, "GetPropW"), host_getpropw);
         native32_replace(native32_export(u, "GetPropA"), host_getpropa);
         native32_replace(native32_export(u, "GetScrollInfo"), host_getscrollinfo);

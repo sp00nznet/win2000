@@ -1209,3 +1209,61 @@ intermediate and custom were 499/1473 before and are 0 now. The mspaint
 startup-heap crash did not recur. Registry (HKCU\Control Panel,
 CurrentVersion\Explorer, Policies) before/after: only UserAssist counters of
 the user's own programs changed.
+
+### The tray thread spun in MsgWaitForMultipleObjectsEx; explorer's icons
+
+**The "deadlock 2" above was not a lock.** With a `woke` line after every
+traced wait (and `left` after a blocking win32k call), only the main thread
+stays blocked (its SendMessage 0x55A to the tray window). The tray thread was
+**spinning**: `NtUserCallOneParam(0xFF, 0x1D) not answered`, thousands of
+times. 0x1D is GetInputEvent. Windows 2000's MsgWaitForMultipleObjectsEx asks
+win32k for the queue's input event and waits on it with the caller's handles.
+The host has no such event to hand out, so the call failed at once and
+explorer's tray loop spun without ever taking the sent message. Fix
+(nthost.c): user32's MsgWaitForMultipleObjects(Ex) are answered by the host's
+(the guest's handles are host handles), with the machine given up
+(mach_release). A message loop now runs (`NtUserWaitMessage` is reached).
+(The CS-wait trace's "waits for lock X owned by tN" picks the first stack word
+whose +0x10 equals the handle. It can be a false match, so check it.)
+
+**Icons (fixed, pcrecomp w32kuser.c).** All of explorer's ~500
+NtUserSetCursorIconData calls failed (CreateIconIndirect, error 87): Windows
+2000's user32 hands over a double-height mask (the AND mask on top) even with
+a colour bitmap, and the host wants the mask at the colour bitmap's height. The
+top half is copied into a cx x cy mask. The placeholder table grew from 64 to
+1024 (explorer makes over 100). One shell32 ICALL miss was seeded
+(0x20A0FA88; seeds are now tracked in work/seeds).
+
+**State (handoff).** Screen still black (shots/exp/tm_27.png). Two outcomes
+by timing:
+- tm: runs to the watchdog, no fault; one thread in a CS wait, the others idle;
+  NtGdiBitBlt x105 and 4 InvalidateRects, but nothing reaches the screen
+  window. Next: check whether the desktop window (Progman / SHELLDLL_DefView,
+  800x600) ever gets WM_PAINT/WM_ERASEBKGND (`--calltrace` for PaintDesktop,
+  BeginPaint), and whether w32kuser's virtual-screen blit picks up a guest
+  window that was only SetWindowPos'd and shown.
+- tl: a guest stack overflow in shell32 sub_20A13F31 (IExtractIcon::
+  GetIconLocation into a MAX_PATH buffer; the registers hold UTF-16 text,
+  esp=006F0084) after a storm of NtQueryAttributesFile -> C0000033 (invalid
+  name). The trace now prints that call's path, but it didn't recur in tm.
+  Next: catch the path it builds (likely an icon path expanded from the
+  registry box, longer than 260 chars or malformed).
+Regression and registry: see below.
+
+Regression after the MsgWait and icon changes (all builds rebuilt):
+calc 2/2, packager 1/1, mspaint 2/2, wordpad 2/2 at 0 pixels; winmine
+start, intermediate, 20x30 and menu open at 0. **Not matching and not stable
+between runs:**
+- winmine click 1120, custom 0 / 1490, menu Interm. 0 / 316;
+- notepad 153 / 740;
+- sol and freecell show a different deal in the two builds (12-30k pixels).
+
+notepad's diff is the caption icon (16,8-30,23). I first copied the half
+mask unconditionally, which changed it; now the half mask is only a retry
+when the host refuses, but the 153 px stayed, so the icon diff is probably not
+the mask. The run right after the lock changes (mach_release) was 18/18 at 0.
+So suspect what came after: the MsgWaitForMultipleObjects host replacement
+(nthost.c, applies to every nt app) or timing. sol and freecell's deal comes
+from their random seed; check that W2K_FIXED_TICK still reaches them. Next,
+before more explorer work: run interact with the nthost MsgWait replacement
+compiled out (explorer only) and bisect.

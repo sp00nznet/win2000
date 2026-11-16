@@ -8,5 +8,10 @@
   "address": 547385732,
   "address_hex": "0x20A07184",
   "note": "indirect call observed at runtime, from 0x20A06F7C"
+ },
+ {
+  "address": 547420808,
+  "address_hex": "0x20A0FA88",
+  "note": "indirect call observed at runtime, from 0x20A13EA0"
  }
 ]
