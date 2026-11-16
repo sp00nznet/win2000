@@ -18,6 +18,9 @@
 #include <limits.h>
 #include <pthread.h>
 #include "ntposix.h"
+#ifdef W2K_GUI
+#include "w32kposix.h"
+#endif
 
 #define ARG(n) MEM32(g_esp + 4 + 4 * (n))
 #define RET(v, n) do { g_eax = (v); g_esp += 4 + 4 * (n); } while (0)
@@ -56,15 +59,56 @@ static const ntp_stub_t g_advapi32[] = {
     { "GetSecurityInfoExW", 9, a_GetSecurityInfoExW },
 };
 
+#ifdef W2K_GUI
+/* What winmine imports from the DLLs that are not lifted here: the
+ * registry (its preferences: none kept, so its defaults), the About box
+ * and sounds (no audio). */
+static void g_RegOpenKeyExA(void) { if (ARG(4)) MEM32(ARG(4)) = 0; RET(ERROR_FILE_NOT_FOUND, 5); }
+static void g_RegCreateKeyExW(void) { if (ARG(7)) MEM32(ARG(7)) = 0x80000100u; if (ARG(8)) MEM32(ARG(8)) = 1; RET(0, 9); }
+static void g_RegQueryValueExA(void) { RET(ERROR_FILE_NOT_FOUND, 6); }
+static void g_RegSetValueExW(void) { RET(0, 6); }
+static const ntp_stub_t g_advapi32_gui[] = {
+    { "RegOpenKeyExA", 5, g_RegOpenKeyExA }, { "RegOpenKeyExW", 5, g_RegOpenKeyExA }, { "RegCreateKeyExW", 9, g_RegCreateKeyExW },
+    { "RegQueryValueExA", 6, g_RegQueryValueExA }, { "RegQueryValueExW", 6, g_RegQueryValueExA },
+    { "RegSetValueExW", 6, g_RegSetValueExW }, { "RegCloseKey", 1, a_RegCloseKey },
+};
+static void s_ShellAboutW(void) { RET(1, 4); }
+static const ntp_stub_t g_shell32[] = { { "ShellAboutW", 4, s_ShellAboutW } };
+static void w_PlaySoundW(void) { RET(1, 3); }
+static const ntp_stub_t g_winmm[] = { { "PlaySoundW", 3, w_PlaySoundW } };
+#ifndef W2K_EXE
+#define W2K_EXE "winmine.exe"
+#endif
+#define W2K_EXE_NAME W2K_EXE
+static const struct { const char* name; uint32_t base; } g_mods[] = {
+    { W2K_EXE, 0x01000000u }, { "ntdll.dll", 0x20000000u }, { "kernel32.dll", 0x20100000u }, { "msvcrt.dll", 0x20200000u },
+    { "user32.dll", 0x20300000u }, { "gdi32.dll", 0x20400000u },
+};
+/* W2K_FIXED_TICK=n / W2K_FIXED_TIME=s, as on Windows (src/nthost.c): the
+ * same mines and deals as the Windows runs */
+static void fixed_tick(void) { g_eax = (uint32_t)strtoul(getenv("W2K_FIXED_TICK"), NULL, 0); g_esp += 4; }
+static void fixed_time(void) {
+    uint32_t v = (uint32_t)strtoul(getenv("W2K_FIXED_TIME"), NULL, 0), p = MEM32(g_esp + 4);
+    if (p) MEM32(p) = v;
+    g_eax = v;
+    g_esp += 4;
+}
+#else
+#define W2K_EXE_NAME "cmd.exe"
 static const struct { const char* name; uint32_t base; } g_mods[] = {
     { "cmd.exe", 0x4AD00000u }, { "ntdll.dll", 0x20000000u }, { "kernel32.dll", 0x20100000u }, { "msvcrt.dll", 0x20200000u },
 };
+#endif
 
 static int g_argc;
 static char** g_argv;
 
 static void* host_main(void* rcp) {
-    char root[PATH_MAX], sys[PATH_MAX] = "", nls[PATH_MAX] = "", cd[1024] = "", cmdline[4096] = "C:\\WINNT\\system32\\cmd.exe";
+    char root[PATH_MAX], sys[PATH_MAX] = "", nls[PATH_MAX] = "", cd[1024] = "", cmdline[4096] = "C:\\WINNT\\system32\\" W2K_EXE_NAME;
+#ifdef W2K_GUI
+    char names[PATH_MAX + 64] = "", fonts[PATH_MAX] = "";
+    int scx = 1024, scy = 768;
+#endif
     if (!getcwd(root, sizeof root)) strcpy(root, ".");
     for (int i = 1; i < g_argc; i++) {
         if (!strcmp(g_argv[i], "--root") && i + 1 < g_argc) { if (!realpath(g_argv[++i], root)) { perror(g_argv[i]); exit(1); } }
@@ -72,6 +116,12 @@ static void* host_main(void* rcp) {
         else if (!strcmp(g_argv[i], "--nls") && i + 1 < g_argc) { if (!realpath(g_argv[++i], nls)) { perror(g_argv[i]); exit(1); } }
         else if (!strcmp(g_argv[i], "--cd") && i + 1 < g_argc) snprintf(cd, sizeof cd, "%s", g_argv[++i]);
         else if (!strcmp(g_argv[i], "--mute")) ;          /* nothing makes a sound here */
+#ifdef W2K_GUI
+        else if (!strcmp(g_argv[i], "--names") && i + 1 < g_argc) snprintf(names, sizeof names, "%s", g_argv[++i]);
+        else if (!strcmp(g_argv[i], "--fonts") && i + 1 < g_argc) snprintf(fonts, sizeof fonts, "%s", g_argv[++i]);
+        else if (!strcmp(g_argv[i], "--screen") && i + 1 < g_argc) sscanf(g_argv[++i], "%dx%d", &scx, &scy);
+        else if (w2kx_script_arg(g_argc, g_argv, i)) i += 1;
+#endif
         else if (!strcmp(g_argv[i], "--")) {
             while (++i < g_argc) { strncat(cmdline, " ", sizeof cmdline - strlen(cmdline) - 1); strncat(cmdline, g_argv[i], sizeof cmdline - strlen(cmdline) - 1); }
             break;
@@ -96,9 +146,25 @@ static void* host_main(void* rcp) {
         snprintf(p, sizeof p, "%s/%s", sys, g_mods[i].name);
         if (!ntp_map(p, g_mods[i].base, g_mods[i].name)) exit(1);
     }
+#ifdef W2K_GUI
+    (void)g_user32, (void)g_advapi32;
+    ntp_proxy("advapi32.dll", g_advapi32_gui, sizeof g_advapi32_gui / sizeof g_advapi32_gui[0]);
+    ntp_proxy("shell32.dll", g_shell32, 1);
+    ntp_proxy("winmm.dll", g_winmm, 1);
+    ntp_syscalls(0x20000000u);
+    {   /* user32 and gdi32 lifted too: win32k is pcrecomp's w32kposix.c */
+        uint32_t w[2] = { 0x20300000u, 0x20400000u };
+        if (!names[0]) snprintf(names, sizeof names, "%s/win32k_2000sp4.txt", sys);
+        if (!fonts[0]) snprintf(fonts, sizeof fonts, "%s", sys);
+        ntp_win32k(w, 2, names);
+        w2kx_install(scx, scy, fonts);
+        ntp_clock_virtual();
+    }
+#else
     ntp_proxy("user32.dll", g_user32, sizeof g_user32 / sizeof g_user32[0]);
     ntp_proxy("advapi32.dll", g_advapi32, sizeof g_advapi32 / sizeof g_advapi32[0]);
     ntp_syscalls(0x20000000u);
+#endif
     {   /* csrss's \NLS sections, from Windows 2000's own NLS files */
         static const char* sec[][2] = {
             { "\\NLS\\NlsSectionUnicode", "unicode.nls" }, { "\\NLS\\NlsSectionCType", "ctype.nls" },
@@ -114,10 +180,15 @@ static void* host_main(void* rcp) {
         }
     }
     uint32_t exe = g_mods[0].base;
-    if (!ntp_boot(0x20000000u, exe, "C:\\WINNT\\system32\\cmd.exe", cmdline, "C:\\WINNT\\system32;C:\\WINNT", cd, nls, 0x0400))
+    if (!ntp_boot(0x20000000u, exe, "C:\\WINNT\\system32\\" W2K_EXE_NAME, cmdline, "C:\\WINNT\\system32;C:\\WINNT", cd, nls, 0x0400))
         exit(1);
     uint32_t entry = exe + MEM32(exe + MEM32(exe + 0x3C) + 0x28);
-    fprintf(stderr, "cmd.exe: %u lifted functions, entering 0x%08X\n", recomp_dispatch_count, entry);
+#ifdef W2K_GUI
+    if (getenv("W2K_FIXED_TICK")) ntp_replace(ntp_export(0x20100000u, "GetTickCount"), fixed_tick);
+    if (getenv("W2K_FIXED_TIME")) ntp_replace(ntp_export(0x20200000u, "time"), fixed_time);
+    w2kx_start();
+#endif
+    fprintf(stderr, "%s: %u lifted functions, entering 0x%08X\n", W2K_EXE_NAME, recomp_dispatch_count, entry);
     ntp_call(entry, 0, NULL);
     *(int*)rcp = (int)g_eax;
     return NULL;

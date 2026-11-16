@@ -150,24 +150,123 @@ What it took, beyond the services in the table above:
   native32.c); moving it into a shared file would bring it over.
 - The registry is a fixed table; nothing a guest writes is kept.
 
-### Next: winmine (stage 3) on Linux
+## Stage 3 on Linux: winmine
 
-On Windows, stage 3 runs Windows 2000's own user32 and gdi32 lifted, and
-answers their win32k services with the *host's* USER and GDI
-(`w32kuser.c`, `w32kgdi.c`: real HWNDs, real DCs, PrintWindow shots). None
-of that exists on Linux, so winmine needs a win32k of its own, not a port:
+**Done for winmine's client area.** Windows 2000's own winmine.exe on its own
+lifted user32, gdi32, msvcrt, kernel32 and ntdll, an i386 ELF
+(`winmine-linux`) on Debian 13, drawing into an offscreen framebuffer saved
+as PNG. Every interact.py state compared with the Windows build's shot
+(`tools/linuxcmp.py`, over the client area both show):
 
-1. Lift `ntwinmine`'s set (user32 + gdi32 at 0x20300000/0x20400000) into
-   the Linux build and boot it; first wall: user32's DllMain connects to
-   usersrv (csrss server 3) and wants SERVERINFO and the handle table
-   (csr32.c's `client_connect` index 3 shows the layout).
-2. A win32k on the guest's own data structures: windows (WND in the
-   desktop heap user32 reads client-side), classes, a message queue,
-   `KiUserCallbackDispatcher` for window procedures (the callback path in
-   syscall32.c is host-independent and can be shared).
-3. GDI into an offscreen 32-bit framebuffer, saved as a PNG per frame or on
-   request; X11 later. winmine draws with BitBlt from its own bitmaps,
-   rectangles, lines and text, so the first GDI set is small.
+| state (interact.py) | Linux shot | pixels that differ |
+|---|---|---|
+| start (`int` 4) | `int_4_client.png` | 0 of 30,338 |
+| a click on a cell (`int` 5.4) | `int_5_client.png` | 0 of 30,338 |
+| Game > Intermediate (`int` 8) | `int_8_client.png` | 0 of 82,194 |
+| Custom dialog driven to 20 x 30 (`dlg` 8) | `dlg_8_client.png` | 0 of 182,770 |
+| Game menu open (`menu` 5, `menu2` 7) | `menu_5_client.png` | 0 under the menu; the drop-down itself is not in the Windows shot (a host popup hiddenrun does not capture) |
+| Custom dialog open (`int` 10) | `int_10.png` | the board under it matches; the dialog differs by design: on Windows it is the host's #32770, Button and Edit (Windows 11 colours), here Windows 2000's own controls in user32 |
 
-That is a project of its own (the Windows win32k layer is ~1,900 lines and
-leans on the host for all of it).
+The Windows build's window is a host window with Windows 11's thicker frame,
+so its client is cut at the right and bottom (154 x 197 of winmine's 164 x
+207); the comparison is over what both show. The Linux frame, caption,
+menu bar, drop-down and dialogs are drawn the classic Windows 2000 way, so
+there is no Windows reference for them.
+
+```
+tools/linux_push.sh netlab@netlab-linux /tmp/w2k-scratch ../pcrecomp-w2k-linux ntwinmine
+# on the box (2.5 minutes on 4 cores):
+cd /tmp/w2k-scratch && sh linux_build.sh ntwinmine && cd root
+W2K_FIXED_TICK=12345 W2K_FIXED_TIME=1000000000 ../winmine-linux --out out/int \
+    --shot 4 --click 30,80@5 --shot 5.4 --command 522@7 --shot 8 --command 524@9 --shot 10
+# out/int_4.png (the windows), out/int_4_client.png (the main window's client) ...
+py -3 tools/linuxcmp.py shots/linux/int_5_client.png shots/int_ntwinmine_5.png
+```
+
+The script flags are hiddenrun's: `--click X,Y@T` (WM_LBUTTONDOWN/UP to the
+main window), `--command ID@T`, `--post MSG,W,L@T`, `--dlgcommand ID@T` and
+`--type ID=TEXT@T` (to the top window), `--shot T`, `--secs S`, `--out
+PREFIX`. Times are on a **virtual clock** (ntposix `ntp_clock_virtual`):
+the guest's tick count, system time and sleeps move only when it waits for
+a message with nothing to deliver, then straight to the next scripted event
+or timer. A run is the same every time, at any speed; winmine's 1-second
+timer ticks exactly as often as on Windows. `W2K_FIXED_TICK`/`W2K_FIXED_TIME`
+give the same mines as the Windows runs.
+
+### How it works
+
+- **ntposix.c** (pcrecomp): the win32k service table (services from 0x1000,
+  numbered by user32/gdi32's own stubs, named from
+  `work/names/win32k_2000sp4.txt`), win32k's **user-mode callbacks**
+  (`ntp_callback`: KiUserCallbackDispatcher -> KernelCallbackTable,
+  NtCallbackReturn and `int 2Bh`, the caller's registers kept), the csrss
+  usersrv connect handed to the window manager, the virtual clock, and a
+  SIGSEGV report (guest function, its last indirect calls, host frames for
+  addr2line).
+- **w32klayout.c/.h** (pcrecomp, new): the Windows 2000 shared state as
+  host-independent code: the USER handle table entries, USERCONNECT /
+  SHAREDINFO (DefWindowMsgs and the controls' awmControl bitmaps),
+  CLIENTINFO, SERVERINFO offsets with Windows 2000's classic metrics and
+  colours, the monitor, the GDI handle table entries, DEVCAPS, DC_ATTR
+  offsets and the TEB batch walker.
+- **w32kposix.c/.h** (pcrecomp, new): the win32k itself, ~1,900 lines.
+  WNDs in a desktop heap kept in step with its own window records; classes;
+  CreateWindowEx's message order (GETMINMAXINFO, NCCREATE, NCCALCSIZE,
+  CREATE, SIZE, MOVE); window procedures called as win32k calls them
+  (`__fnINLPCREATESTRUCT`, `__fnDWORD`, DispatchClientMessage found in
+  PFNCLIENT); DefWindowProc's server half (frame, caption, buttons, menu bar,
+  NCCALCSIZE by Windows 2000's GetWindowBorders, erase, text, control
+  colours); the queue, WM_PAINT from update state, timers; menus (items
+  mirrored into MENU/ITEM for user32's client-side lookups, a drop-down for
+  SC_KEYMENU). GDI in software: memory and display DCs, 32-bit and
+  monochrome bitmaps, solid and pattern brushes, pens, a ROP3 BitBlt /
+  StretchBlt with GDI's mono/colour rules, PatBlt, DIBs in and out
+  (1/4/8/16/24/32 bpp), lines with ROP2, pixels, text from Windows 2000's
+  own sserife.fon / vgasys.fon (NE + FNT 2.0/3.0 parsed here; bold
+  overstruck), the TEB batch. PNGs written with stored deflate (no zlib).
+- **src/nthost_linux.c** `W2K_GUI`: winmine's module set at the Windows
+  bases, proxies for what is not lifted (advapi32's registry: nothing kept,
+  so the defaults; shell32's About box; winmm's PlaySound, silent).
+
+Two things the Windows host never needed: user32's own Button, Edit and
+Static controls (the Windows build used the host's), and with them two
+window procedures only data points at (`EditWndProcW` 0x20307FF1, and
+0x20327739, 0x2034E2F9). w32kposix reports a class procedure that is not
+lifted as an `ICALL` line, `seed_from_log.py` seeds it, and user32 is
+re-catalogued and re-lifted. That lift was made in a scratch tree (not
+work/cat or work/seeds, which the Windows work shares); to make it
+permanent: `tools/seed.sh` on a run's log, then `tools/lift.py ntwinmine ...`.
+
+### Merge plan (w32klayout and the Windows host)
+
+w32kuser.c and w32kgdi.c (branch `pcrecomp-w2k`, being worked on there)
+were not edited. w32klayout.c holds the same layouts as functions; when that
+branch is quiet, w32kuser.c's handle-table, USERCONNECT, CLIENTINFO and
+SERVERINFO code and w32kgdi.c's table entries, DEVCAPS and batch walk become
+calls into it (csr32.c's `client_connect` index 3 calls
+`w2k_user_connect`; the batch becomes a `w2k_gdi_batch` callback). One
+behaviour change comes with it: awmControl filled in (harmless while the
+host's controls stand in for user32's). Then `w2k-linux` merges into the
+Windows branch: ntposix.c, w32klayout.c and w32kposix.c are new files and
+touch nothing the Windows build compiles.
+
+### Gaps
+
+- One thread, as before; hooks are accepted and never called.
+- Clipping is one rectangle per DC; no regions beyond rectangles, no
+  z-order clipping between windows (they draw in creation order).
+- MM_TEXT only; no DIB sections read back (CreateDIBSection is a device
+  bitmap with spare bits); no RLE DIBs; no palettes.
+- Text: bitmap faces only (MS Sans Serif for every TrueType request), ANSI
+  window procedures get Unicode text.
+- The menu drop-down is drawn, not tracked (no keyboard or mouse in it);
+  a click or key closes it.
+- No real keyboard input; accelerators are not translated.
+- Not yet run: notepad, calc, sol, freecell (cards.dll), mspaint, wordpad.
+
+### Next
+
+calc and notepad (Edit-heavy: the caret, EM_* through user32's own Edit),
+then sol/freecell (cards.dll). An X11 or SDL window on the same framebuffer
+for live use, with real input. Merge w32klayout into the Windows host when
+that branch is quiet.

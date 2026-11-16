@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Added
+- Stage 3 on Linux, no Wine: Windows 2000's own winmine.exe on its own lifted user32,
+  gdi32, msvcrt, kernel32 and ntdll (`winmine-linux`), with win32k answered in software
+  by pcrecomp's new w32kposix.c (windows, messages, DefWindowProc's frame/caption/menu
+  bar, menus, GDI with ROP3 blits, DIBs, pens, text from Windows 2000's own .fon files)
+  over the shared Windows 2000 layouts in w32klayout.c. An offscreen framebuffer saved
+  as PNG; hiddenrun's --click/--command/--post/--type/--dlgcommand/--shot on a virtual
+  clock. interact.py's start, click, Intermediate and Custom 20x30 states: 0 pixels
+  differ from the Windows build over the client area (`tools/linuxcmp.py`).
+  `linux_build.sh`/`linux_push.sh` take the app; `.gitattributes` keeps .sh files LF.
 - Stage 2 on Linux, no Wine: Windows 2000's own cmd.exe on its own lifted msvcrt,
   kernel32 and ntdll, an i386 ELF (`cmd-linux`) on pcrecomp's POSIX NT backend
   (runtime/native32/ntposix.c, branch w2k-linux). `cmd /c ver` and the piped session
