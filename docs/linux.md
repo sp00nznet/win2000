@@ -250,23 +250,165 @@ host's controls stand in for user32's). Then `w2k-linux` merges into the
 Windows branch: ntposix.c, w32klayout.c and w32kposix.c are new files and
 touch nothing the Windows build compiles.
 
+(Gaps and next steps for all the apps are at the end of Stage 4.)
+
+## Stage 4 on Linux: calc, notepad, sol, freecell, and a live window
+
+**Done.** The four apps run as i386 ELFs (`calc-linux`, `notepad-linux`,
+`sol-linux` and `freecell-linux`, the last two with Windows 2000's own
+cards.dll lifted). Each one runs on its own lifted user32, gdi32, msvcrt,
+kernel32 and ntdll. Each interact.py state was compared with the Windows
+build's shot using `tools/linuxcmp.py --syscolors`:
+
+| state (interact.py) | pixels that differ | what differs |
+|---|---|---|
+| calc start (`calc` 5) | 1,486 of 52,832 | only the glyphs: Windows draws calc's button text with the host's ClearType |
+| calc 12+3= (`calc` 8) | 1,504 of 52,832 | the same, and the display reads `15.` on both |
+| sol deal (`sol` 8) | **1 of 224,640** | one card-corner pixel at (85,8) |
+| sol deck click (`sol` 10) | **1 of 224,640** | the same pixel |
+| freecell deal (`fc` 8) | 15,463 of 264,388 | the column x positions: freecell lays out by client width, and the Windows host's client is 8 px narrower (Windows 11 frame), so the outer columns shift by 1-4 px. The centre columns, cells, home cells and king match. |
+| freecell card to cell (`fc` 11) | 15,945 of 264,388 | the same |
+| notepad start / typed (`np` 9, 11) | not pixel-comparable | text: notepad asks for Lucida Console, drawn by the host's TrueType on Windows and as MS Sans Serif here. Size: CW_USEDEFAULT is the host's on Windows. Scroll bars: Windows 11's on Windows. |
+
+What `--syscolors` counts: the Windows build draws with the host's system
+colours (Windows 11's button face is 240,240,240, Windows 2000's is
+212,208,200). A pixel that is the same system colour on both sides is
+counted apart (calc has 44,152 of them; sol has 585, the status bar's
+frame). winmine is unchanged after all of this: 0 differing pixels in
+`int` 4, 5, 8 and `dlg` 8.
+
+```
+tools/linux_push.sh netlab@netlab-linux /tmp/w2k-scratch ../pcrecomp-w2k-linux ntsol   # (ntcalc, ntnotepad, ntfreecell)
+# on the box:
+cd /tmp/w2k-scratch && sh linux_build.sh ntsol && cd root
+W2K_FIXED_TICK=12345 W2K_FIXED_TIME=1000000000 ../sol-linux --out out/sol --shot 8 --click 40,60@9 --shot 10
+# calc:     --shot 5 --command 125@5.5 --command 126@5.8 --command 92@6.1 --command 127@6.4 --command 112@6.7 --shot 8
+# notepad:  --shot 9 --type "15=Hello, Windows 2000@9.5" --shot 11
+# freecell: --command 102@3 --shot 8 --click 40,300@9 --click 40,50@10 --shot 11
+py -3 tools/linuxcmp.py shots/linux/sol_10_client.png shots/sol_ntsol_10.png diff.png --syscolors
+```
+
+### The live window
+
+`--live` opens an X11 window over the framebuffer and takes real mouse and
+keyboard input. It is in w32kposix.c, built with `-DW2K_X11 -lX11` when
+the box has i386 libX11, which netlab's Debian box does; no packages were
+installed. The virtual clock follows the real one while the app waits, so
+timers tick in real time. Scripted events and `--shot` still work on top.
+Input goes where win32k would send it:
+
+- **Mouse:** the capture window, or the window under the pointer.
+  - In the client area: WM_MOUSEMOVE and button messages with MK_ flags.
+    The second click within 500 ms is a WM_LBUTTONDBLCLK for a CS_DBLCLKS
+    class.
+  - Outside it: WM_NCHITTEST. A click on HTMENU drops that menu bar item
+    down, and a click in the drop-down sends the item's WM_COMMAND.
+  - A click activates the top-level window it lands in.
+- **Keyboard:** WM_KEYDOWN and WM_KEYUP to the focus window, with Windows
+  VKs. NtUserTranslateMessage makes WM_CHAR from the character X typed, so
+  Shift and punctuation come out right. GetKeyState and GetAsyncKeyState
+  read the keys that are down. Alt+letter and F10 open the menu, and Esc
+  closes it.
+- **Closing:** the window manager's close button sends WM_CLOSE.
+
+`tools/linux_live.sh APP OUT steps...` runs an app under Xvfb (or the
+`DISPLAY` you have) and drives it with xdotool, a real X input path
+(XTEST). Each step is an xdotool command line, or `shot NAME` (xwd of the
+window, then PNG). Verified, with shots in `shots/linux/live_*.png`:
+
+- sol: a click on the deck turns three cards. Dragging the ace of spades
+  (mousedown, two moves, mouseup) puts it on a home cell (`Score: 10`).
+  A click on `Game` drops the menu down.
+- notepad: `type 'Hello from X11, live!'`, Return, and a second line with
+  capitals, digits and punctuation all appear in its Edit. Alt+F opens File.
+
+```
+cd /tmp/w2k-scratch/root
+sh ../linux_live.sh sol out/live "mousemove 60 200" "mousedown 1" "mousemove 300 100" "mouseup 1" "sleep 1" "shot drag"
+DISPLAY=:0 ../notepad-linux --live      # on a desktop session, by hand
+```
+
+### What it took
+
+**pcrecomp `w32kposix.c`:**
+
+- **gclBorder** (SERVERINFO +0x7E4) is 1. With 0, user32's own
+  AdjustWindowRect computed a thick frame 1 px short. sol then sized its
+  window 2 px narrower than it needs for a 10-px margin, never laid its
+  piles out, and drew every card at (0,0).
+- **WM_SIZE / WM_MOVE are sent at the first show**, as win32k's
+  WFSENDSIZEMOVE does, not inside CreateWindowEx.
+- **CW_USEDEFAULT:** with x = CW_USEDEFAULT, y is the show command, so a
+  `WS_VISIBLE` window with y = 0 (calc's CalcMsgPumpWnd) stays hidden. Dialogs pass
+  0x8000 (win32k's CW2_USEDEFAULT). The main window is the first top-level
+  window shown, not the first created.
+- **Class menus:** win32k loads them through `__ClientLoadMenu`
+  (KernelCallbackTable 65, found by its call to LoadMenuW). That is
+  notepad's menu bar.
+- **System cursors and icons:** NtUserFindExistingCursorIcon answers the
+  OCR/IDI ids with empty cursor objects. Without them, notepad's
+  `LoadCursor(NULL, IDC_WAIT)` failed and it exited at once.
+- **Window text:** NtUserDefSetText is DefWindowProc's WM_SETTEXT. It is
+  calc's display, which goes through user32's own Static/Edit.
+- **Scroll bars:** NtUserSetScrollInfo, the client shrunk in
+  WM_NCCALCSIZE, and the bars drawn in the non-client area (arrows, the
+  dithered track, the thumb; greyed with no range). This is notepad's Edit.
+- **Regions:** NtGdiCombineRgn for rectangles, and RGN_ATTR read back after
+  gdi32's client-side SetRectRgn. freecell's card glide left trails without
+  it.
+
+**win2000:**
+
+- `src/nthost_linux.c` (W2K_GUI): stubs for what notepad, freecell and
+  calc import from comdlg32 (every dialog cancelled), winspool, shell32's
+  drag-and-drop, and advapi32 (RegCreateKeyW, RegDeleteValueW,
+  RegFlushKey, IsTextUnicode). cards.dll is mapped at 0x20500000 when the
+  app has it (`W2K_CARDS`). Script options can take one argument
+  (`--live`).
+- `tools/linux_build.sh` and `linux_push.sh` handle cards.dll and X11.
+- user32 is re-lifted with the three seeds from Stage 3 (`EditWndProcW`
+  and two more), now in `work/seeds/user32.dll.json` through
+  `tools/seed.sh`. All five Linux sets were re-lifted: ntwinmine, ntcalc,
+  ntnotepad, ntsol and ntfreecell.
+
+**Threads and hooks:** none of the four apps sets a hook. Only calc asks
+for a thread: one NtCreateThread, created suspended, after `=`. It is
+refused, calc carries on, and it shows the right result, so no app needs
+a second thread yet.
+
 ### Gaps
 
-- One thread, as before; hooks are accepted and never called.
-- Clipping is one rectangle per DC; no regions beyond rectangles, no
-  z-order clipping between windows (they draw in creation order).
-- MM_TEXT only; no DIB sections read back (CreateDIBSection is a device
-  bitmap with spare bits); no RLE DIBs; no palettes.
-- Text: bitmap faces only (MS Sans Serif for every TrueType request), ANSI
-  window procedures get Unicode text.
-- The menu drop-down is drawn, not tracked (no keyboard or mouse in it);
-  a click or key closes it.
-- No real keyboard input; accelerators are not translated.
-- Not yet run: notepad, calc, sol, freecell (cards.dll), mspaint, wordpad.
+- One thread (NtCreateThread is refused). Hooks are accepted and never
+  called.
+- No caret (NtUserCreateCaret and NtUserShowCaret are accepted, nothing is
+  drawn).
+- Text: bitmap faces only. MS Sans Serif stands in for every TrueType
+  request, including notepad's Lucida Console. ANSI window procedures get
+  Unicode text.
+- Drop-down menus: the mouse and Esc work in them; there is no arrow-key
+  tracking, no hot-tracking highlight, and separators draw as gaps.
+- No accelerators are translated (NtUserTranslateAccelerator returns 0):
+  F2 in sol and Ctrl+N in notepad do nothing.
+- Clipping is one rectangle per DC, and regions are rectangles (a result
+  that is not one is kept as its bounding box). There is no z-order
+  clipping between windows.
+- The live window is the whole 1024x768 screen. There is no cursor shape
+  and no window dragging or resizing (WM_NCLBUTTONDOWN is posted, and
+  DefWindowProc's server half does nothing with it).
+- Comparison: notepad's Edit text and freecell's layout cannot match the
+  Windows build pixel for pixel. The Windows build's text and client size
+  come from the host's win32k.
+- One sol pixel (85,8) differs. It is a card corner; cards.dll restores
+  corners with GetPixel/SetPixel.
 
 ### Next
 
-calc and notepad (Edit-heavy: the caret, EM_* through user32's own Edit),
-then sol/freecell (cards.dll). An X11 or SDL window on the same framebuffer
-for live use, with real input. Merge w32klayout into the Windows host when
-that branch is quiet.
+- A caret.
+- TranslateAccelerator.
+- A TrueType rasterizer for lucon.ttf, which Windows 2000 ships. That
+  would let notepad's text be compared.
+- Menu keyboard tracking.
+- Threads: guest threads on host pthreads under one big lock, switched at
+  waits. calc is the first taker.
+- mspaint and wordpad (comctl32, riched20).
+- Merge w32klayout into the Windows host when `pcrecomp-w2k` is quiet.

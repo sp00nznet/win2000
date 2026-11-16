@@ -67,13 +67,44 @@ static void g_RegOpenKeyExA(void) { if (ARG(4)) MEM32(ARG(4)) = 0; RET(ERROR_FIL
 static void g_RegCreateKeyExW(void) { if (ARG(7)) MEM32(ARG(7)) = 0x80000100u; if (ARG(8)) MEM32(ARG(8)) = 1; RET(0, 9); }
 static void g_RegQueryValueExA(void) { RET(ERROR_FILE_NOT_FOUND, 6); }
 static void g_RegSetValueExW(void) { RET(0, 6); }
+static void g_RegCreateKeyW(void) { if (ARG(2)) MEM32(ARG(2)) = 0x80000100u; RET(0, 3); }
+static void g_zero1(void) { RET(0, 1); }
+static void g_zero2(void) { RET(0, 2); }
+static void g_zero3(void) { RET(0, 3); }
+static void g_zero6(void) { RET(0, 6); }
+static void g_zero0(void) { RET(0, 0); }
 static const ntp_stub_t g_advapi32_gui[] = {
     { "RegOpenKeyExA", 5, g_RegOpenKeyExA }, { "RegOpenKeyExW", 5, g_RegOpenKeyExA }, { "RegCreateKeyExW", 9, g_RegCreateKeyExW },
     { "RegQueryValueExA", 6, g_RegQueryValueExA }, { "RegQueryValueExW", 6, g_RegQueryValueExA },
     { "RegSetValueExW", 6, g_RegSetValueExW }, { "RegCloseKey", 1, a_RegCloseKey },
+    /* notepad, freecell */
+    { "RegCreateKeyW", 3, g_RegCreateKeyW }, { "RegDeleteValueW", 2, g_zero2 }, { "RegFlushKey", 1, g_zero1 },
+    { "IsTextUnicode", 3, g_zero3 },
 };
 static void s_ShellAboutW(void) { RET(1, 4); }
-static const ntp_stub_t g_shell32[] = { { "ShellAboutW", 4, s_ShellAboutW } };
+static void s_DragQueryFileW(void) { RET(0, 4); }
+static const ntp_stub_t g_shell32[] = {
+    { "ShellAboutW", 4, s_ShellAboutW }, { "DragQueryFileW", 4, s_DragQueryFileW }, { "DragFinish", 1, g_zero1 },
+    { "DragAcceptFiles", 2, g_zero2 },
+};
+/* notepad's common dialogs and printer: none here (each one cancelled) */
+static void c_GetFileTitleW(void) {           /* the file part of a path into the buffer */
+    uint32_t f = ARG(0), b = ARG(1), n = ARG(2), s = f;
+    for (uint32_t p = f; MEM16(p); p += 2) if (MEM16(p) == '\\' || MEM16(p) == '/' || MEM16(p) == ':') s = p + 2;
+    uint32_t i = 0;
+    for (; MEM16(s + 2 * i) && i + 1 < n; i++) MEM16(b + 2 * i) = MEM16(s + 2 * i);
+    if (n) MEM16(b + 2 * i) = 0;
+    RET(0, 3);
+}
+static void c_PrintDlgExW(void) { RET(0x80004005u, 1); }
+static const ntp_stub_t g_comdlg32[] = {
+    { "FindTextW", 1, g_zero1 }, { "GetSaveFileNameW", 1, g_zero1 }, { "GetOpenFileNameW", 1, g_zero1 },
+    { "PrintDlgExW", 1, c_PrintDlgExW }, { "ReplaceTextW", 1, g_zero1 }, { "GetFileTitleW", 3, c_GetFileTitleW },
+    { "ChooseFontW", 1, g_zero1 }, { "PageSetupDlgW", 1, g_zero1 }, { "CommDlgExtendedError", 0, g_zero0 },
+};
+static const ntp_stub_t g_winspool[] = {
+    { "GetPrinterDriverW", 6, g_zero6 }, { "OpenPrinterW", 3, g_zero3 }, { "ClosePrinter", 1, g_zero1 },
+};
 static void w_PlaySoundW(void) { RET(1, 3); }
 static const ntp_stub_t g_winmm[] = { { "PlaySoundW", 3, w_PlaySoundW } };
 #ifndef W2K_EXE
@@ -83,6 +114,9 @@ static const ntp_stub_t g_winmm[] = { { "PlaySoundW", 3, w_PlaySoundW } };
 static const struct { const char* name; uint32_t base; } g_mods[] = {
     { W2K_EXE, 0x01000000u }, { "ntdll.dll", 0x20000000u }, { "kernel32.dll", 0x20100000u }, { "msvcrt.dll", 0x20200000u },
     { "user32.dll", 0x20300000u }, { "gdi32.dll", 0x20400000u },
+#ifdef W2K_CARDS
+    { "cards.dll", 0x20500000u },                  /* sol, freecell */
+#endif
 };
 /* W2K_FIXED_TICK=n / W2K_FIXED_TIME=s, as on Windows (src/nthost.c): the
  * same mines and deals as the Windows runs */
@@ -110,7 +144,7 @@ static void* host_main(void* rcp) {
     int scx = 1024, scy = 768;
 #endif
     if (!getcwd(root, sizeof root)) strcpy(root, ".");
-    for (int i = 1; i < g_argc; i++) {
+    for (int i = 1, n; i < g_argc; i++) {
         if (!strcmp(g_argv[i], "--root") && i + 1 < g_argc) { if (!realpath(g_argv[++i], root)) { perror(g_argv[i]); exit(1); } }
         else if (!strcmp(g_argv[i], "--sys") && i + 1 < g_argc) { if (!realpath(g_argv[++i], sys)) { perror(g_argv[i]); exit(1); } }
         else if (!strcmp(g_argv[i], "--nls") && i + 1 < g_argc) { if (!realpath(g_argv[++i], nls)) { perror(g_argv[i]); exit(1); } }
@@ -120,7 +154,7 @@ static void* host_main(void* rcp) {
         else if (!strcmp(g_argv[i], "--names") && i + 1 < g_argc) snprintf(names, sizeof names, "%s", g_argv[++i]);
         else if (!strcmp(g_argv[i], "--fonts") && i + 1 < g_argc) snprintf(fonts, sizeof fonts, "%s", g_argv[++i]);
         else if (!strcmp(g_argv[i], "--screen") && i + 1 < g_argc) sscanf(g_argv[++i], "%dx%d", &scx, &scy);
-        else if (w2kx_script_arg(g_argc, g_argv, i)) i += 1;
+        else if ((n = w2kx_script_arg(g_argc, g_argv, i))) i += n - 1;
 #endif
         else if (!strcmp(g_argv[i], "--")) {
             while (++i < g_argc) { strncat(cmdline, " ", sizeof cmdline - strlen(cmdline) - 1); strncat(cmdline, g_argv[i], sizeof cmdline - strlen(cmdline) - 1); }
@@ -149,8 +183,10 @@ static void* host_main(void* rcp) {
 #ifdef W2K_GUI
     (void)g_user32, (void)g_advapi32;
     ntp_proxy("advapi32.dll", g_advapi32_gui, sizeof g_advapi32_gui / sizeof g_advapi32_gui[0]);
-    ntp_proxy("shell32.dll", g_shell32, 1);
+    ntp_proxy("shell32.dll", g_shell32, sizeof g_shell32 / sizeof g_shell32[0]);
     ntp_proxy("winmm.dll", g_winmm, 1);
+    ntp_proxy("comdlg32.dll", g_comdlg32, sizeof g_comdlg32 / sizeof g_comdlg32[0]);
+    ntp_proxy("winspool.drv", g_winspool, sizeof g_winspool / sizeof g_winspool[0]);
     ntp_syscalls(0x20000000u);
     {   /* user32 and gdi32 lifted too: win32k is pcrecomp's w32kposix.c */
         uint32_t w[2] = { 0x20300000u, 0x20400000u };

@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- Stage 4 on Linux: calc, notepad, sol and freecell (with cards.dll lifted) as i386 ELFs on
+  their own lifted user32/gdi32 and pcrecomp's w32kposix, compared with the Windows build
+  (`linuxcmp.py --syscolors`: sol 1 of 224,640 pixels, calc only ClearType glyphs). A live
+  X11 window (`--live`) with real mouse and keyboard; `tools/linux_live.sh` drives it under
+  Xvfb with xdotool. user32 re-lifted with the Stage 3 seeds (work/seeds via tools/seed.sh).
 - Stage 3 on Linux, no Wine: Windows 2000's own winmine.exe on its own lifted user32,
   gdi32, msvcrt, kernel32 and ntdll (`winmine-linux`), with win32k answered in software
   by pcrecomp's new w32kposix.c (windows, messages, DefWindowProc's frame/caption/menu
