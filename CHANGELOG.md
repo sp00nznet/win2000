@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- Stage 2 on Linux, no Wine: Windows 2000's own cmd.exe on its own lifted msvcrt,
+  kernel32 and ntdll, an i386 ELF (`cmd-linux`) on pcrecomp's POSIX NT backend
+  (runtime/native32/ntposix.c, branch w2k-linux). `cmd /c ver` and the piped session
+  match Windows. `src/nthost_linux.c`, `tools/linux_push.sh`, `tools/linux_build.sh`,
+  docs/linux.md (design: i386 flat over a 4 GB arena, and why).
 - The guest never writes the user's registry: every Reg*/NtXxxKey/profile write goes to
   HKCU\Software\pcrecomp\w2k\<app> (pcrecomp regbox32.c), reads fall through read-only.
   NtUserCallNoParam 0x12, DC_ATTR window origin/extents, WS_VISIBLE shows.
