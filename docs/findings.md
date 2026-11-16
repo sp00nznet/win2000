@@ -1149,3 +1149,63 @@ just before: check the slot index the lifted kernel32 hands back against the
 TEB's TlsSlots/TlsExpansionSlots the guest reads). Next: `--argtrace` on
 0x2117AD70 and its caller, and NATIVE32_SYSCALLS around the NtAllocate
 VirtualMemory that returned that page.
+
+### The oleaut32 fault was a reloaded DLL's stale data; then the threads' locks
+
+**The crash (fixed).** Not a TLS slot and not commit-on-demand. `NATIVE32_SYSCALLS`
+(which now prints the region a `Nt*VirtualMemory` ended with, `[base +size]`)
+showed oleaut32's statically linked CRT small-block heap reserving its region
+(0x400000 at 0x07EE0000, 0x10000 committed), then **releasing** it: a
+`LoadLibrary(clbcatq)` that ole32 abandons unloads clbcatq and the new
+dependencies it pulled in (oleaut32, msvcrt), and oleaut32's PROCESS_DETACH
+frees its heap. The next CoCreateInstance loads oleaut32 again. A lifted
+image is never really unmapped (`ovr_unmap_view` keeps it), so the second
+PROCESS_ATTACH ran over the .data the detach left, and the heap's rover still
+pointed into the freed region (then reused by a section view): the write at
++4. NT maps a fresh copy. Fix (pcrecomp syscall32.c): a lifted image's
+writable sections are saved at its first map and put back on a map after an
+unmap; a section for an image already known reuses its slot.
+
+**Deadlock 1 (fixed): win32k services held the machine.** Explorer's main
+thread SendMessages (0x55A) to the tray window, owned by the tray thread; the
+shim called the host's SendMessageW with the machine lock held, so the tray
+thread could never run. Now NtUserMessageCall to *another thread's* window,
+NtUserGetMessage and NtUserWaitMessage give the machine up. Inside a window
+procedure (a callback) the lock is held twice, so they use the new
+`mach_release()/mach_reacquire(n)` (native32.c), which drops every level and
+takes the same count back. Releasing it on every SendMessage, including a
+send to the thread's own window, let the other thread run in the middle of
+CDefView's processing and fault in shell32 (sub_20A18E70); hence own-thread
+sends stay under the lock. Nt waits keep their one-level `mach_leave`.
+
+**Still open: deadlock 2 (guest critical sections).** With the above, three
+threads end like this (handles differ per run): the main thread is in a
+SendMessage(0x55A) to the tray window, and the tray thread and a third thread
+wait in RtlpWaitForCriticalSection on the same semaphore. Which section, and
+which thread owns it, is not yet known. My watchdog walk of the guest's lock
+list (nthost.c: from PEB->LoaderLock's DebugInfo, ProcessLocksList) prints
+values that don't look like sections (0x210E60E8 "count 13, semaphore E"), so
+check that layout first. The "waits in" trace line now prints 8 stack words
+after the arguments. The suspect is a lock the main thread holds while it sends
+(on real NT a thread blocked in a CS wait doesn't take sent messages either, so
+either the main thread doesn't hold that lock on Windows 2000, or the tray
+thread reaches its message loop before the send). Next: name the section
+behind the semaphore (log every NtCreateEvent/NtCreateSemaphore's returned
+handle next to its caller, or record RtlpWaitForCriticalSection's argument),
+then its owner. Screen: still black (shots/exp/ta_27.png); the desktop
+listview gets its items, and the tray window is created, shown, gets its
+region and timer.
+
+Tools added: `NATIVE32_SYSCALLS` prints `t<id> waits in ...` before a host
+wait and `t<id> enters NtUserMessageCall(hwnd msg), window of t<owner>`
+before a blocking win32k call; the fault report names the mapping behind a
+fault address (lifted code is in ntexplorer.exe); the watchdog dumps the
+guest's contended critical sections.
+
+Regression after these runtime changes (all builds rebuilt; interact.py, one app
+at a time): winmine 7/7, notepad 2/2, sol 2/2, freecell 2/2, calc 2/2,
+packager 1/1, mspaint 2/2, wordpad 2/2, all 0 pixels differ. winmine
+intermediate and custom were 499/1473 before and are 0 now. The mspaint
+startup-heap crash did not recur. Registry (HKCU\Control Panel,
+CurrentVersion\Explorer, Policies) before/after: only UserAssist counters of
+the user's own programs changed.

@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wctype.h>
+#include <psapi.h>
+#pragma comment(lib, "psapi.lib")
 
 #include "native32.h"
 #include "recomp_trace.h"
@@ -62,6 +64,15 @@ static LONG CALLBACK crash(EXCEPTION_POINTERS* ep) {
     fprintf(stderr, "\n=== fault 0x%08lX at %p (access %08lX) ===\n  in lifted sub_%08X, last native call %s\n",
             r->ExceptionCode, r->ExceptionAddress, (unsigned long)(r->NumberParameters > 1 ? r->ExceptionInformation[1] : 0),
             g_cur_func, g_cur_import);
+    {
+        /* code outside every loaded module: name the mapping behind it */
+        MEMORY_BASIC_INFORMATION mb;
+        char f[MAX_PATH] = "";
+        if (VirtualQuery(r->ExceptionAddress, &mb, sizeof mb))
+            GetMappedFileNameA(GetCurrentProcess(), r->ExceptionAddress, f, MAX_PATH),
+            fprintf(stderr, "  code in a %s mapping at %p: %s\n", mb.Type == MEM_IMAGE ? "image" : mb.Type == MEM_MAPPED ? "file" : "private",
+                    mb.AllocationBase, f);
+    }
     fprintf(stderr, "  eax=%08X ecx=%08X edx=%08X ebx=%08X esp=%08X ebp=%08X esi=%08X edi=%08X\n",
             g_eax, g_ecx, g_edx, g_ebx, g_esp, g_ebp, g_esi, g_edi);
     native32_dump_icalls(12);
@@ -83,6 +94,18 @@ static DWORD WINAPI watchdog(LPVOID unused) {
     }
     Sleep(g_watchdog_s * 1000);
     fprintf(stderr, "\n[watchdog] %lu s: in sub_%08X, last native call %s\n", g_watchdog_s, g_cur_func, g_cur_import);
+    if (native32_guest_peb && MEM32(native32_guest_peb + 0xA0)) {
+        /* The guest's held critical sections: every one is on the list the
+         * loader lock's DebugInfo (+0) is linked into (ProcessLocksList +8;
+         * the section is DebugInfo +4; OwningThread +0xC, LockSemaphore +0x10) */
+        uint32_t head = MEM32(MEM32(native32_guest_peb + 0xA0)) + 8, e = MEM32(head);
+        for (int n = 0; e && e != head && n < 4096; e = MEM32(e), n++) {
+            uint32_t cs = MEM32(e - 8 + 4);
+            if (cs && !IsBadReadPtr((void*)(uintptr_t)cs, 0x18) && (MEM32(cs + 0xC) || MEM32(cs + 4) != 0xFFFFFFFFu))
+                fprintf(stderr, "[watchdog] lock %08X held by t%lu (count %d, semaphore %X)\n", cs,
+                        (unsigned long)MEM32(cs + 0xC), (int)MEM32(cs + 4), (int)MEM32(cs + 8), MEM32(cs + 0x10));
+        }
+    }
     fflush(stderr);
     native32_dump_icalls(8);
     recomp_dump_trace("watchdog");
