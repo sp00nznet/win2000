@@ -28,7 +28,7 @@ def lines(inf, mod):
     sec, strs = {}, {'_SYS_MOD_PATH': mod, '_MOD_PATH': mod,
                  '11': os.path.dirname(mod)}   # LDID 11, the system directory (LocalizedString's @%11%\shell32.dll,-8964): the lifted modules' own
     cur = None
-    for l in inf.splitlines():
+    for l in re.sub(r'\\[ \t]*\r?\n\s*', '', inf).splitlines():   # INF line continuations
         l = l.split(';')[0].strip() if not l.strip().startswith('"') else l.strip()
         if l.startswith('['): cur = sec.setdefault(l[1:l.index(']')].lower(), [])
         elif l and cur is not None: cur.append(l)
@@ -45,17 +45,37 @@ def lines(inf, mod):
         elif len(f) >= 2 and f[0].upper() == 'HKLM' and re.search(r'\\NameSpace\\', f[1], re.I):
             yield f + [''] * (5 - len(f))
 
+def hive_items(iso, dlls):
+    """HIVESFT's Desktop\\NameSpace items served by one of DLLS, and HIVECLS's lines for those
+    classes (Recycle Bin is shell32's, but HIVECLS registers it, not shell32's REGINST)."""
+    rd = lambda f: open(os.path.join(iso, f), encoding='latin-1').read() if os.path.exists(os.path.join(iso, f)) else ''
+    cls = list(lines(rd('HIVECLS.INF'), ''))
+    srv = {x[1].split('\\')[1].upper(): x[4].lower() for x in cls
+           if x[1].upper().endswith('\\INPROCSERVER32') and not x[2]}
+    ns = [x for x in lines(rd('HIVESFT.INF'), '') if re.search(r'Desktop\\NameSpace\\\{.*\}$', x[1], re.I)
+          and srv.get(x[1].rsplit('\\', 1)[1].upper(), '').replace('.dll', '') in dlls]
+    want = {x[1].rsplit('\\', 1)[1].upper() for x in ns}
+    return ns + [x for x in cls if x[1].split('\\')[1].upper() in want]
+
 def main():
     box, d, dlls = sys.argv[1], sys.argv[2], sys.argv[3:]
     root = r'Software\pcrecomp\%s\HKLM\SOFTWARE\Classes' % box
     n = 0
     for dll in dlls:
         f = os.path.abspath(os.path.join(d, dll if '.' in dll else dll + '.dll'))
-        for hive, key, name, flags, val in lines(reginst(f), f):
+        items = list(lines(reginst(f), f))
+        if dll == dlls[-1]:
+            items += hive_items(os.path.join(os.path.dirname(__file__), '..', 'work', 'iso', 'I386'), [x.lower() for x in dlls])
+        for hive, key, name, flags, val, *data in items:
             fl = int(flags, 0) if flags else 0
+            # %SystemRoot%\System32\x.dll or a bare x.dll is the lifted module in DIR, never the host's
+            val = re.sub(r'(?i)^(%SystemRoot%\\System32\\)?(\w+\.dll)',
+                         lambda m: os.path.join(os.path.abspath(d), m.group(2)), val)
             at = root if hive.upper() == 'HKCR' else r'Software\pcrecomp\%s\HKLM' % box
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, at + '\\' + key) as k:
-                if fl & 1 and fl & 0x10000: winreg.SetValueEx(k, name or None, 0, winreg.REG_DWORD, int(val or '0', 0))
+                if fl & 1 and fl >> 16 == 3:                     # REG_BINARY, its bytes across the fields
+                    winreg.SetValueEx(k, name or None, 0, winreg.REG_BINARY, bytes(int(x, 16) for x in [val] + data if x))
+                elif fl & 1 and fl & 0x10000: winreg.SetValueEx(k, name or None, 0, winreg.REG_DWORD, int(val or '0', 0))
                 elif not (fl & 0xFFFF0000 == 0 and fl & 2 and val == ''):
                     winreg.SetValueEx(k, name or None, 0, winreg.REG_EXPAND_SZ if fl & 0x20000 else winreg.REG_SZ, val)
             n += 1

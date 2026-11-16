@@ -1534,3 +1534,70 @@ the host's activity, not the guest's.
 
 Not done: the taskbar (Shell_TrayWnd is 4x0 at -2,2: NtUserSetWindowRgn still
 unanswered), the Start menu, Run -> winmine.
+
+### The startup deadlock; the taskbar (handoff)
+
+**Deadlock root cause (pcrecomp d6b47b1).** A trace of a hung run: the tray
+thread holds the loader lock, the heap lock 04040608 and ole32's 210E60E8 and
+is runnable; the main thread waits for 04040608. Neither "waits for lock"
+line names the machine lock, and that was it: the main thread was inside a
+window procedure (a host callback, machine depth 2) when it hit the heap
+lock, and syscall32's Nt*Wait path gave up the machine with one mach_leave,
+so it kept it at depth 1 while it slept. The tray thread could never re-enter
+the machine to release the heap lock. The win32k blocking calls already used
+mach_release (every level); the Nt wait path now does too. 8 of 8 runs
+without a hang (d1..d8), and none in the ~15 explorer runs after.
+
+**Desktop (shots/exp/t8_19.png, local).** The NameSpace fix removed Win11's
+nameless folders, but also Recycle Bin: it is not in shell32's REGINST but in
+HIVESFT.INF (Desktop\NameSpace) and HIVECLS.INF (its CLSID, ShellFolder
+Attributes as a continued binary line). tools/reginst.py now adds HIVESFT's
+desktop items served by one of the DLLs given, with HIVECLS's lines for them
+(INF continuations and REG_BINARY handled; %SystemRoot%\System32\x.dll and a
+bare x.dll map to the lifted module). Desktop: My Computer, My Network Places,
+Recycle Bin. My Documents needs mydocs.dll (not lifted). My Computer and
+Recycle Bin show a generic program icon (shell32 index lookup, not looked at).
+
+**Taskbar (pcrecomp 75d3d88).** Three causes:
+- The primary MONITOR had HEAD.h 0: MonitorFromRect answered 0 and
+  GetMonitorInfo failed, so the tray sized itself to nothing (4x0 at -2,2). It
+  now has handle 0x1FFFF in the handle table's last slot, TYPE_MONITOR (12).
+  NtUserEnumDisplayMonitors calls the guest's MONITORENUMPROC with it.
+- Progman covered the tray: SetShellWindowEx is answered locally and keeps the
+  shell window the virtual screen's bottom child (also on ShowWindow).
+- The tray's SetWindowRgn region reached the host as 0,0,1,1: gdi32 keeps a
+  rect region's rectangle client-side (RGNATTR, ATTR_RGN_DIRTY 0x20) and
+  win32k applies it on any call that takes the region. native32_gdi_rgn
+  applies a dirty RGNATTR; only SetWindowRgn uses it (pcrecomp eb68b5f; in the
+  first version, 75d3d88, it was native32_gdi_host for every caller, mspaint
+  faulted at start (sub_2004BB49). Find why before widening it.
+Taskbar: 804x34 at the bottom, Windows 2000 grey, Start button and band
+present but the Start button has no logo/text and the clock is missing.
+RegisterHotKey/UnregisterHotKey and SetShellWindowEx answer TRUE in the guest;
+SendNotifyMessage only to this process's windows (a broadcast is dropped);
+PostThreadMessage only to this process's threads (it was unanswered before:
+explorer's posts to its own threads were lost).
+
+**Start menu: not yet.** A click (hiddenrun --drag X,Y,X,Y@T reaches the
+deepest child; --click posts to the main window only) focuses the Start
+button and explorer builds the Start menu (menus, the menuband toolbar under
+BaseBar) but never shows the BaseBar, even 26 s later. Leads:
+NtUserCallHwndLock 0x4D on the tray window (likely SetForegroundWindow) and
+NtUserCallOneParam(1, 0x21) are unanswered; NtUserDeleteMenu/RemoveMenu are
+unshimmed. Next: trace from the WM_COMMAND 0x130 on the tray to
+IMenuPopup::Popup and see where it stops. Then Run -> winmine.
+
+interact (all 8, after the runtime change): every state 0 except freecell 4790
+(the known flake, both states); sol's deck click was 0 this time. packager
+10637 and mspaint's missing shots on the first pass were the RGNATTR sync in
+every caller (above); after narrowing it, packager 0, mspaint 0/0.
+
+Registry (HKCU\Control Panel, CurrentVersion\Explorer, both Policies): the
+snapshot taken before the first run was lost (scratch dir gone); one taken
+just before and after the final explorer run (start click included):
+identical, 10128 lines. The box is the only thing written (reginst.py, under
+HKCU\Software\pcrecomp\w2k\explorer).
+
+Last shot shots/exp/f1_27.png: desktop + taskbar, Start button focused; My
+Computer's label paints black after the click (seen before, a listview
+label redraw, not looked at).
