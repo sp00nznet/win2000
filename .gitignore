@@ -1,5 +1,7 @@
 # Microsoft binaries, their analysis and the lifted C are never committed.
-work/
+work/*
+# the ICALL/ITAIL seeds are addresses only (tools/seed.sh); kept so a relift reproduces
+!work/seeds/
 src/gen/
 build/
 build-*/
