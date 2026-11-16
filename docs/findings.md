@@ -736,3 +736,25 @@ settings. Guard it before a program that does.
 |---|---|
 | interact all five (17 states) | 0 (winmine custom once 658, 0 on rerun: the known flake) |
 | gdicmp all five | 0 |
+
+### Handoff state (after calc at 0)
+
+All five accessories are 0 in every `interact.py` state and in `gdicmp`.
+packager is still 322 against stage 1 (501x179, bbox 10,55-273,70): ClearType
+text a level apart and 3 highlight pixels. The host DrawTextW did not change
+it, so packager's labels reach ExtTextOutW another way (its own TextOut, or
+user32's internal DrawText calls, which the export replacement does not see).
+Find the caller with NATIVE32_SYSCALLS (NtGdiExtTextOutW's `from`).
+
+Next, in order:
+1. NtUserCallOneParam 0x19 (CreateIcon, CreateIconIndirect,
+   LookupIconIdFromDirectoryEx, LoadCursorFromFileA): an empty cursor object,
+   then NtUserSetCursorIconData(hcur, module UNICODE_STRING*, resource
+   UNICODE_STRING*, CURSORDATA*). Read CURSORDATA's layout off user32's
+   CreateIconIndirect (what it fills before the call), answer with a host
+   CreateIconIndirect from its hbmMask/hbmColor/hotspot, and re-measure packager.
+2. mspaint and wordpad (MFC: mfc42u.dll; riched20.dll) at stage 1 and on
+   lifted user32/gdi32: expand from the CD, rebase with rebase.py (one exe per
+   call; DLLs at free 0x205xxxxx bases), lift, add `w2k_user_host` targets
+   with the extra DLLs as in ntsol's cards.dll, and extend interact.py.
+Skip clipbrd (it needs DDEML's server-side classes).
