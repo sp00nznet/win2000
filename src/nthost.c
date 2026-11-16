@@ -53,8 +53,9 @@ static LONG CALLBACK crash(EXCEPTION_POINTERS* ep) {
     if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                            (LPCSTR)r->ExceptionAddress, &hm) && hm != GetModuleHandleA(NULL))
         return EXCEPTION_CONTINUE_SEARCH;
-    fprintf(stderr, "\n=== fault 0x%08lX at %p ===\n  in lifted sub_%08X, last native call %s\n",
-            r->ExceptionCode, r->ExceptionAddress, g_cur_func, g_cur_import);
+    fprintf(stderr, "\n=== fault 0x%08lX at %p (access %08lX) ===\n  in lifted sub_%08X, last native call %s\n",
+            r->ExceptionCode, r->ExceptionAddress, (unsigned long)(r->NumberParameters > 1 ? r->ExceptionInformation[1] : 0),
+            g_cur_func, g_cur_import);
     fprintf(stderr, "  eax=%08X ecx=%08X edx=%08X ebx=%08X esp=%08X ebp=%08X esi=%08X edi=%08X\n",
             g_eax, g_ecx, g_edx, g_ebx, g_esp, g_ebp, g_esi, g_edi);
     native32_dump_icalls(12);
@@ -153,6 +154,34 @@ static void host_getpropa(void) { g_eax = (uint32_t)(uintptr_t)GetPropA((HWND)(u
 static void host_getscrollinfo(void) { g_eax = GetScrollInfo((HWND)(uintptr_t)ARG(0), (int)ARG(1), (SCROLLINFO*)(uintptr_t)ARG(2)); g_esp += 4 + 12; }
 static void host_getscrollpos(void) { g_eax = (uint32_t)GetScrollPos((HWND)(uintptr_t)ARG(0), (int)ARG(1)); g_esp += 4 + 8; }
 static void host_getscrollrange(void) { g_eax = GetScrollRange((HWND)(uintptr_t)ARG(0), (int)ARG(1), (int*)(uintptr_t)ARG(2), (int*)(uintptr_t)ARG(3)); g_esp += 4 + 16; }
+/* CallWindowProc(proc, hwnd, msg, wParam, lParam) to a HOST procedure (a
+ * comctl32 control MFC subclassed): GDI handles in the message are the
+ * guest's, so they go over as the host's. MFC's CToolBar adds its image
+ * well with TB_ADDBITMAP / TB_REPLACEBITMAP through it (wordpad, mspaint).
+ * A guest procedure gets the message as it is. Then Windows 2000's own. */
+static recomp_func_t g_cwp_w, g_cwp_a;
+static void cwp_host(void) {
+    static uint32_t tb[5];
+    uint32_t proc = ARG(0), m = ARG(2), l = ARG(4);
+    if (proc < 0x10000 || native32_in_guest(proc)) return;
+    if (ARG(3) && native32_gdi_host(ARG(3))) MEM32(g_esp + 16) = native32_gdi_host(ARG(3));
+    if ((m == 0x413 || m == 0x42E) && l) {           /* TB_ADDBITMAP, TB_REPLACEBITMAP */
+        memcpy(tb, (void*)(uintptr_t)l, m == 0x413 ? 8 : 20);
+        if (!tb[0] && native32_gdi_host(tb[1])) tb[1] = native32_gdi_host(tb[1]);
+        if (m == 0x42E && !tb[2] && native32_gdi_host(tb[3])) tb[3] = native32_gdi_host(tb[3]);
+        MEM32(g_esp + 20) = (uint32_t)(uintptr_t)tb;
+    }
+}
+static void host_cwp_w(void) { cwp_host(); g_cwp_w(); }
+static void host_cwp_a(void) { cwp_host(); g_cwp_a(); }
+/* CreateDCW(driver, device, port, DEVMODEW*): MFC's printer DC (wordpad wraps
+ * to the printer). Windows 2000's gdi32 resolves a printer through its own
+ * spooler and opened a device of NULL (the display) here; the host's. */
+static void host_createdcw(void) {
+    HDC h = CreateDCW((LPCWSTR)(uintptr_t)ARG(0), (LPCWSTR)(uintptr_t)ARG(1), (LPCWSTR)(uintptr_t)ARG(2), (DEVMODEW*)(uintptr_t)ARG(3));
+    g_eax = native32_gdi_handle((uint32_t)(uintptr_t)h);
+    g_esp += 4 + 16;
+}
 static void host_adjust3(void) {
     g_eax = AdjustWindowRect((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2));
     g_esp += 4 + 12;
@@ -269,6 +298,11 @@ static int host_main(int argc, char** argv) {
         native32_replace(native32_export(u, "GetScrollInfo"), host_getscrollinfo);
         native32_replace(native32_export(u, "GetScrollPos"), host_getscrollpos);
         native32_replace(native32_export(u, "GetScrollRange"), host_getscrollrange);
+        g_cwp_w = recomp_lookup(native32_export(u, "CallWindowProcW"));
+        g_cwp_a = recomp_lookup(native32_export(u, "CallWindowProcA"));
+        native32_replace(native32_export(native32_module("gdi32.dll"), "CreateDCW"), host_createdcw);
+        if (g_cwp_w) native32_replace(native32_export(u, "CallWindowProcW"), host_cwp_w);
+        if (g_cwp_a) native32_replace(native32_export(u, "CallWindowProcA"), host_cwp_a);
     }
 #endif
     if (getenv("W2K_FIXED_TICK"))

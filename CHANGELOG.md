@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- wordpad and mspaint pixel-identical on lifted user32 + gdi32 (`interact.py`
+  wordpad start/typed, mspaint start/line: 0; wordpad's typed state can show a
+  16-pixel caret in one build only, blink phase). riched20's vtable-only
+  0x2070B6E0 and 0x207108C0 catalogued; RichEdit's window bytes, styles,
+  caret, font enumeration, printer DC, batched TextOut and the viewport
+  origin answered (pcrecomp native32). The guest's CreateDCW, and
+  CallWindowProcW/A to a host procedure, answered by the host (nthost.c).
+  The fault line names the access address.
 - packager pixel-identical on lifted user32 (the guest's DrawTextA answered by
   the host's). mspaint and wordpad targets (Windows 2000's mfc42u and riched20
   lifted on both builds); mspaint starts and draws a line on lifted user32

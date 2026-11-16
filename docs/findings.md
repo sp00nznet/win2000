@@ -830,3 +830,74 @@ Next:
 2. mspaint pixels: compare the toolbox (CToolboxWnd, pressed button) and the
    frame's client edge. The client is about 1 px lower and to the right,
    which suggests WS_EX_CLIENTEDGE or border metrics.
+
+### wordpad and mspaint at 0
+
+**riched20 catalogue.** 0x2070B6E0 is named only by the vtable slot
+0x20711CA4; the GUIDs before it decoded as code and `mov esi, imm32` covered
+it, so the data scan dropped it as "mid-instruction". disasm32 now takes a
+target of a three-pointer run in code even there, and keeps it through
+drop_mid_instruction_entries. Next miss, 0x207108C0, is stored by
+`mov eax, 0x207108C0` in an alias body whose span reaches past it; the
+"loading its own data" skip now does not apply when another body's
+instruction ends right at the target. Also: no function starts inside the IAT
+(wordpad.exe's bound IAT made a 2,294-instruction body: 11,250 -> 8
+unimplemented), and the MFC message-map rule checks the AFX_MSGMAP_ENTRY
+fields (nMessage, nCode, IDs, nSig small, or 0xC000 with a pointer: ON_REGISTERED_MESSAGE) of a neighbour entry or a zero
+terminator after a one-entry map (wordpad's WM_CREATE 0x0100C3C6): mspaint
+584 -> 22.
+
+**What wordpad needed, in the order it showed up:**
+- NtUserSetWindowLong index >= 0: RichEdit keeps its object in the window
+  bytes, read client-side at WND+0x98 (not +0x9C: that is a dialog's DIALOG
+  pointer). Without it every RichEdit message returned 0 and
+  IRichEditOle::SetHostNames ran on NULL.
+- GWL_STYLE/GWL_EXSTYLE forwarded to the host. MFC's ModifyStyleEx drops
+  WS_EX_CLIENTEDGE; without it no WM_MOVE/WM_SIZE, wordpad's frame rect stayed
+  empty (136x39). The guest's style is read-modify-write from a WND that can
+  predate ShowWindow, so WS_VISIBLE stays the host's (RichEdit hid its view).
+  This was also mspaint's whole difference: mspaint is 0 at start and after
+  the line with no mspaint-specific change.
+- The host command line reached mfc42u (`__p___wargv`) and wordpad
+  (`_wcmdln`) on stage 1: wordpad opened "12" from `--watchdog 12`.
+- DC_ATTR: iMapMode +0x168 (RichEdit relaid out on 0 and never painted),
+  viewport origin +0x184/0x188 (the ruler is drawn with SetViewportOrgEx(16,4)),
+  applied in dc(). Batch command 2 is TextOut (XP's GDIBSTEXTOUT layout: fg,
+  bk, bk mode, x +0x10, y +0x14, options +0x18 (bit 31 no rect), RECT +0x1C,
+  count +0x30, font +0x38, align +0x3C, viewport +0x40, text +0x48).
+- The display DEVCAPS at the shared table + 0x40000 (gdi32's GetDeviceCaps
+  reads it for a DC with DC_ATTR+4 bit 0x10000): index -> offset map in
+  w32kgdi.c s_init.
+- Font enumeration: ENUMFONTDATAW entries { cj, dpNtmi 0x170, FontType,
+  ENUMLOGFONTEXW, DESIGNVECTOR } + NTMW_INTERNAL { TMDIFF, NEWTEXTMETRICEXW,
+  DESIGNVECTOR }; the W callback gets +0xC and dpNtmi + 8 ("Western").
+- DeleteObject on a stock object forgot its guest handle (wordpad deletes
+  DEFAULT_GUI_FONT and then sends it: combo text in the System font).
+- CallWindowProcW/A to a host procedure (comctl32 toolbar): TB_ADDBITMAP /
+  TB_REPLACEBITMAP bitmaps and a GDI wParam go over as the host's (nthost.c).
+- Printer DC: the guest's CreateDCW answered by the host's (Windows 2000's
+  gdi32 opened a NULL device without its spooler); EM_SETTARGETDEVICE then
+  carried a host HDC into RichEdit, so cb_in maps a known host handle in
+  wParam back to the guest's. Without it RichEdit made a 1-pixel font and
+  wrapped every typed character.
+- Services: StretchDIBitsInternal, CallOneParam 0x1E (GetKeyboardLayout),
+  GetDoubleClickTime, GetKeyboardLayoutList, Show/Hide/Create/DestroyCaret
+  (CallNoParam 2), CallTwoParam 0x5E (SetCaretPos), ShowScrollBar,
+  GetKeyState, CountClipboardFormats, IsClipboardFormatAvailable,
+  TranslateAccelerator, ScrollWindowEx, GetThreadDesktop, GetCharSet,
+  GetCharWidthW, GetOutlineTextMetricsInternalW, GetDCDword (7 memory DC),
+  GetAndSetDCDword (8 SetMapMode).
+
+| Compare | Result |
+|---|---|
+| interact winmine (7), notepad, sol, freecell, calc, packager | 0 (freecell card-to-cell 316 once in the full run, 0 on rerun) |
+| interact mspaint start / line | 0 / 0 |
+| interact wordpad start / typed | 0 / 0 (typed: 16 px caret in one build in some runs, blink phase) |
+| gdicmp all five | 0 (freecell 871 once, 0 on rerun: flake) |
+
+Gaps: stage 1 wordpad/mspaint write their Applets\Wordpad / Paint keys in the
+live HKCU through the host advapi32 (an MFC app saving its options; not a
+system setting, but a guest writing the user's registry): route the guest's
+HKCU to a private hive next. NtUserCallNoParam 0x12 still unanswered; window
+origin/extents in DC_ATTR not applied; a style change that shows a window is
+not passed on.
