@@ -1668,3 +1668,81 @@ Registry: work/regsnap/before2.txt (before the first explorer run), after3.txt
 (after the last): Control Panel and both Policies unchanged; Explorer differs
 only in Win11's own UserAssist counters and SessionInfo\...\W32: records (the
 host shell's tracking). The guest wrote only to its box.
+
+### Start -> Run -> winmine (handoff)
+
+pcrecomp (w2k, after dc92737). shots/exp (local): winmine_run_16.png (the Run
+dialog, "winmine" typed, the Start button with its logo, the menu with text and
+the Professional banner), winmine_run2_27.png (the lifted winmine on the same
+virtual screen, started by explorer).
+
+- **Menu item text.** Two causes. (1) menu_sync kept fType/state/id but not
+  the ITEM's text: GetMenuItemInfo/GetMenuString are client-side in Windows
+  2000 (ITEM +0x18 lpstr, +0x1C cch, +0x20 dwItemData, read off user32's
+  GetMenuItemInfoW). Now copied into the desktop heap. (2) The menuband takes
+  its font from SystemParametersInfoA(SPI_GETNONCLIENTMETRICS): Windows 2000's
+  A wrapper passes its NONCLIENTMETRICSW with cbSize unset and uiParam 0x154;
+  its own win32k filled it, the host refused, and CreateFontIndirectA made a
+  font from stack garbage (every GetTextExtent failed: the menu was narrow and
+  textless). The runtime now sets cbSize/uiParam to the NT 5 size (0x1F4).
+- **One item painted, then nothing** (a WM_PAINT loop): Windows 2000's gdi32
+  batches ExtSelectClipRgn(hdc, NULL, RGN_COPY) (DrawText's restore) as mode
+  0x08000005, not bit 31 as the batch decoder assumed (read off gdi32's
+  ExtSelectClipRgn). Read as a rect, the stale TEB bytes clipped the rest of
+  the paint. This also makes desktop labels transparent (they were drawn on
+  black) and wordpad's toolbar now draws its last button (Date/Time), which
+  the stage 1 build does not: interact's wordpad diffs below are that button.
+- **Banner "Windows 2000 Terminal"**: Windows 2000's user32 answers
+  GetSystemMetrics(SM_REMOTESESSION) with PEB SessionId != 0, and the guest PEB
+  carried the host's session (every Win10/11 desktop is 1+). The guest's PEB
+  SessionId is now 0 (the local console); named objects already use the host
+  session through BASE_STATIC_SERVER_DATA. Banner: "Windows 2000 Professional",
+  last item Shut Down (Terminal had Windows Security); **the tray clock now shows**
+  (explorer hides it in a remote session).
+- **Start button image**: explorer draws the logo and "Start" into the button's
+  bitmap with DrawCaptionTemp (DC_INBUTTON|DC_ICON|DC_TEXT); NtUserDrawCaptionTemp
+  is now the host's DrawCaptionTempW (guest DC/font/icon translated). Also
+  NtGdiGetBitmapBits and NtGdiGetNearestColor answered.
+- **Run dialog**: RunDlgProc keeps its data in DWL_USER; s_setlong refused
+  every extra-byte index on a dialog (WND+0x16 bit 0), so it read 0 and
+  faulted at +0x28. DWL_USER is now stored at WND+0x98+8, where the guest's
+  GetWindowLong reads it for dialogs.
+- **Launch**: ShellExecuteEx("winmine") never reached CreateProcessW: nothing
+  named winmine.exe is on the host's paths (and must not be). reginst.py now
+  writes App Paths\<name>.exe -> build\nt<name>.exe into explorer's box for
+  every runner, and nthost's guard accepts an image that is itself a runner
+  (nt<name>.exe). Log: `[launch] ntwinmine -> ...\build\ntwinmine.exe`. Other
+  names are still `[guard] ... refused`. run_explorer.sh's host-module check
+  skips the launched runner's own startup lines (from [launch] to its banner;
+  winmine proxies host shell32/winmm as in its own runs).
+
+How the run is driven (run_explorer.sh, hiddenrun `--childpost`): drag on the
+Start button (35,580); WM_COMMAND 0x191 (IDM_FILERUN, the Run item's id) posted
+to Shell_TrayWnd; EM_SETSEL + WM_CHARs to the edit under 200,474; WM_COMMAND
+IDOK to #32770. The menu item itself does not react to a posted click or key
+(drag at 90,509 reaches ToolbarWindow32 at 60,176; WM_KEYDOWN 'R' to the
+toolbar or the Start button: nothing). The menuband's input goes through its
+WH_GETMESSAGE hook and checks the real cursor/focus; not followed. The Start
+menu stays open after Run (the tray posted the command, not the menu).
+
+Gaps: the Run dialog has no caption; winmine on the screen has no frame/caption
+and is clipped to ~150 px wide; no taskbar button for winmine. A desktop click
+(drag at 38,30) raised the desktop over the taskbar and winmine (the screen
+went to icons only): Progman/the desktop listview should stay at the bottom
+(probably the SetActiveWindow/HWND_TOP path when the desktop is activated).
+NtUserAttachThreadInput and CallHwndLock 0x4C are still unanswered.
+mydocs.dll and the My Computer icon check not started.
+
+interact (all 8, after the runtime changes): every state 0 except wordpad 337
+/ 930 (the Date/Time toolbar button above, now drawn by the lifted build only).
+freecell 0/0 this time.
+
+Registry: work/regsnap/before4.txt (before the first explorer run), after4.txt
+(after the last). Control Panel and both Policies unchanged; Explorer differs
+only in Win11's UserAssist counters (CTLSESSION, Windows Terminal, a Godot app:
+the host's own activity) and SessionInfo\1\ApplicationViewManagement\W32:
+records (the host shell's window tracking). The guest wrote only to its box.
+
+Next: the desktop z-order on click (keep the desktop at the bottom), then the
+menuband's own click/keyboard path (its GETMESSAGE hook), the launched
+program's frame and taskbar button.

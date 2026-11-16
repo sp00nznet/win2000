@@ -304,6 +304,11 @@ static void host_createprocess(int ansi) {
     wcsncat(run, L"nt", MAX_PATH - wcslen(run) - 1);
     wcsncat(run, stem, MAX_PATH - wcslen(run) - 5);
     wcscat(run, L".exe");
+    /* the runner named itself (the box's App Paths point there: "winmine" in the Run dialog) */
+    if (n > 2 && !wcsncmp(stem, L"nt", 2) && GetFileAttributesW(run) == INVALID_FILE_ATTRIBUTES) {
+        wchar_t* s = wcsrchr(run, L'\\') + 1;
+        memmove(s + 2, s + 4, (wcslen(s + 4) + 1) * sizeof *s);
+    }
     if (!n || GetFileAttributesW(run) == INVALID_FILE_ATTRIBUTES) {
         fprintf(stderr, "[guard] CreateProcess %ls: not a lifted program: refused\n", buf);
         SetLastError(ERROR_ACCESS_DENIED);

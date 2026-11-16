@@ -83,6 +83,14 @@ def main():
                     winreg.SetValueEx(k, name or None, 0, winreg.REG_EXPAND_SZ if fl & 0x20000 else winreg.REG_SZ, val)
             n += 1
     print('%d class lines into HKCU\\%s' % (n, root))
+    # App Paths for each lifted program's runner (build\nt<name>.exe): the Run dialog's
+    # "winmine" resolves there, and the host's launch guard starts only those
+    b = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'build'))
+    ap = r'Software\pcrecomp\%s\HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths' % box
+    for f in os.listdir(b):
+        if re.match(r'nt\w+\.exe$', f) and f != 'ntexplorer.exe':
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, ap + '\\' + f[2:]) as k:
+                winreg.SetValueEx(k, None, 0, winreg.REG_SZ, os.path.join(b, f))
 
 if __name__ == '__main__':
     main()

@@ -122,6 +122,8 @@ def main():
     ap.add_argument('--dlgcommand', action='append', default=[], help='ID@T: WM_COMMAND ID posted to the top window')
     ap.add_argument('--drag', action='append', default=[], help='X1,Y1,X2,Y2@T: a left-button drag in the main '
                     'window client coordinates, posted to the deepest child under X1,Y1')
+    ap.add_argument('--childpost', action='append', default=[], help='X,Y:MSG,WPARAM,LPARAM@T: a message posted '
+                    'to the deepest child under X,Y of the main window; CLASS:MSG,... to its child of that class')
     ap.add_argument('--settle', action='store_true', help='event-driven: each step waits until the previous one '
                     'has settled (WM_NULL answered, nothing left to paint, pixels held --hold s); step times are limits')
     ap.add_argument('--hold', type=float, default=0.5)
@@ -148,6 +150,16 @@ def main():
     u32.CloseDesktop(desk)
 
 
+def deepest(h, x, y):
+    """The deepest visible child of h under client X,Y, and the point in its client coordinates."""
+    u32.ChildWindowFromPointEx.restype = W.HWND
+    pt = W.POINT(x, y)
+    while True:
+        c = u32.ChildWindowFromPointEx(h, pt, 1)
+        if not c or c == h: return h, pt
+        u32.MapWindowPoints(h, c, ctypes.byref(pt), 1); h = c
+
+
 def send_input(a, p, desk, kind, what):
     ws = windows_of(p.pid, desk)
     main_w = ws[-1] if ws else None          # top-level, bottom of the z-order: the main window
@@ -160,14 +172,14 @@ def send_input(a, p, desk, kind, what):
         lp = (y << 16) | (x & 0xFFFF)
         u32.PostMessageW(main_w, 0x0201, 1, lp)   # WM_LBUTTONDOWN, MK_LBUTTON
         u32.PostMessageW(main_w, 0x0202, 0, lp)   # WM_LBUTTONUP
+    elif main_w and kind == 'childpost':
+        xy, m = what.split(':')
+        if xy[0].isdigit(): h, _ = deepest(main_w, *map(int, xy.split(',')))
+        else: u32.FindWindowExW.restype = W.HWND; h = u32.FindWindowExW(main_w, None, xy, None)   # a class: a screen window
+        u32.PostMessageW(h, *(int(v, 0) for v in m.split(',')))
     elif main_w and kind == 'drag':
         x1, y1, x2, y2 = map(int, what.split(','))
-        u32.ChildWindowFromPointEx.restype = W.HWND
-        h, pt = main_w, W.POINT(x1, y1)
-        while True:   # down to the deepest visible child (pt in h's client coordinates)
-            c = u32.ChildWindowFromPointEx(h, pt, 1)
-            if not c or c == h: break
-            u32.MapWindowPoints(h, c, ctypes.byref(pt), 1); h = c
+        h, pt = deepest(main_w, x1, y1)
         dx, dy = pt.x - x1, pt.y - y1
         for i in range(11):
             x, y = x1 + (x2 - x1) * i // 10 + dx, y1 + (y2 - y1) * i // 10 + dy
@@ -277,7 +289,7 @@ def timeline(a, p, desk, t0):
     u32.SetThreadDesktop(W.HANDLE(desk))
     ev = sorted([(float(c.split('@')[1]), 1, k, c.split('@')[0]) for opt, k in
                  ((a.click, 'click'), (a.command, 'cmd'), (a.post, 'post'), (a.type, 'type'),
-                  (a.dlgcommand, 'dlgcmd'), (a.drag, 'drag')) for c in opt] +
+                  (a.dlgcommand, 'dlgcmd'), (a.drag, 'drag'), (a.childpost, 'childpost')) for c in opt] +
                 [(t, 0, 'shot', '') for t in a.shot] +
                 ([(a.end_at, 2, 'end', '')] if a.end_at is not None else []))
     for t, _, kind, what in ev:

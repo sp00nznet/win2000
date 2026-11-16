@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- Start -> Run -> winmine: the Run dialog opens (WM_COMMAND 0x191 on the tray), "winmine"
+  resolves through App Paths in explorer's box (reginst.py: one per build
+t<name>.exe) and
+  the launch guard starts build
+twinmine.exe on the same virtual screen. The Start menu
+  has its item text, the "Professional" banner (the guest's PEB SessionId is 0, the local
+  console) and the Start button its logo and "Start" (NtUserDrawCaptionTemp). The tray
+  clock shows. Desktop labels draw transparent. hiddenrun.py `--childpost`.
 - explorer no longer exits 1: its desktop's and tray's COM classes (browseui's CCommonBrowser,
   BandSite) resolved to the host's ExplorerFrame.dll, which was proxied into the guest. Now
   a host COM server or .cpl is never mapped into a lifted process, the host's CLSID/AppID
