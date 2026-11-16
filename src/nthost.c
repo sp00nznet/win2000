@@ -262,11 +262,18 @@ static void host_createdcw(void) {
     g_eax = native32_gdi_handle((uint32_t)(uintptr_t)h);
     g_esp += 4 + 16;
 }
+static void host_adjust3(void) {
+    g_eax = AdjustWindowRect((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2));
+    g_esp += 4 + 12;
+}
+#endif
 /* CreateProcessW/A(app, cmdline, psa, tsa, inherit, flags, env, dir, si, pi):
  * the guard's launch path. The program named must be a lifted one with a
- * host runner next to this one (build\nt<name>.exe, built from its lift);
- * that runner is started as a new host process with the guest's arguments,
- * on the same virtual screen (W2K_SCREEN_HWND is in our environment).
+ * host runner next to this one (build\nt<name>.exe, else build\<name>.exe:
+ * cmd, find, more), built from its lift; that runner is started as a new
+ * host process with the guest's arguments, inherit flag, creation flags and
+ * standard handles (cmd's pipes; guest handles are host handles), on the
+ * same virtual screen (W2K_SCREEN_HWND is in our environment).
  * Anything else, an original or a host program included, is refused. */
 static void host_createprocess(int ansi) {
     wchar_t buf[1024], run[MAX_PATH], line[1400], stem[64];
@@ -302,7 +309,7 @@ static void host_createprocess(int ansi) {
         while (p + n < end && n < 63) stem[n] = towlower(p[n]), n++;
         stem[n] = 0;
     }
-    if (n > 4 && !wcscmp(stem + n - 4, L".exe")) stem[n -= 4] = 0;
+    if (n > 4 && (!wcscmp(stem + n - 4, L".exe") || !wcscmp(stem + n - 4, L".com"))) stem[n -= 4] = 0;
     for (size_t i = 0; i < n; i++) if (!iswalnum(stem[i]) && stem[i] != L'_') n = 0;
     GetModuleFileNameW(NULL, run, MAX_PATH);
     if (wcsrchr(run, L'\\')) wcsrchr(run, L'\\')[1] = 0;
@@ -314,6 +321,10 @@ static void host_createprocess(int ansi) {
         wchar_t* s = wcsrchr(run, L'\\') + 1;
         memmove(s + 2, s + 4, (wcslen(s + 4) + 1) * sizeof *s);
     }
+    if (n && GetFileAttributesW(run) == INVALID_FILE_ATTRIBUTES) {   /* build\<name>.exe: cmd, find, more */
+        wchar_t* s = wcsrchr(run, L'\\') + 1;
+        if (!wcsncmp(s, L"nt", 2)) memmove(s, s + 2, (wcslen(s + 2) + 1) * sizeof *s);
+    }
     if (!n || GetFileAttributesW(run) == INVALID_FILE_ATTRIBUTES) {
         fprintf(stderr, "[guard] CreateProcess %ls: not a lifted program: refused\n", buf);
         SetLastError(ERROR_ACCESS_DENIED);
@@ -321,9 +332,18 @@ static void host_createprocess(int ansi) {
         g_esp += 4 + 40;
         return;
     }
-    _snwprintf(line, 1399, L"\"%ls\" --mute --%ls", run, args);
+    _snwprintf(line, 1399, L"\"%ls\" --mute --raw%ls", run, args);
     line[1399] = 0;
-    if (!CreateProcessW(run, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &out)) {
+    if (ARG(8)) {   /* STARTUPINFO: A and W share the layout of these fields */
+        const STARTUPINFOW* g = (const STARTUPINFOW*)(uintptr_t)ARG(8);
+        si.dwFlags = g->dwFlags & (STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW);
+        si.wShowWindow = g->wShowWindow;
+        si.hStdInput = g->hStdInput, si.hStdOutput = g->hStdOutput, si.hStdError = g->hStdError;
+    }
+    /* ponytail: the guest's environment block and directory are not passed (ours; the box's C:\) */
+    if (!CreateProcessW(run, line, NULL, NULL, ARG(4) != 0,
+                        ARG(5) & (CREATE_SUSPENDED | CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW),
+                        NULL, NULL, &si, &out)) {
         g_eax = 0;
     } else {
         fprintf(stderr, "[launch] %ls -> %ls (pid %lu): %ls\n", stem, run, out.dwProcessId, line);
@@ -335,11 +355,6 @@ static void host_createprocess(int ansi) {
 }
 static void host_createprocessw(void) { host_createprocess(0); }
 static void host_createprocessa(void) { host_createprocess(1); }
-static void host_adjust3(void) {
-    g_eax = AdjustWindowRect((RECT*)(uintptr_t)ARG(0), ARG(1), ARG(2));
-    g_esp += 4 + 12;
-}
-#endif
 
 static int host_main(int argc, char** argv) {
     const char* sys = W2K_SYS, *nlsdir = W2K_NLS;
@@ -359,6 +374,12 @@ static int host_main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--native-trace")) native32_trace_native = 1;
         else if (!strcmp(argv[i], "--sys") && i + 1 < argc) sys = argv[++i];
         else if (!strcmp(argv[i], "--nls") && i + 1 < argc) nlsdir = argv[++i];
+        else if (!strcmp(argv[i], "--raw")) {
+            /* the launch path's: the rest of our command line as it is, quotes kept (find "hi") */
+            const wchar_t* r = wcsstr(GetCommandLineW(), L" --raw");
+            if (r) _snwprintf(cmdline + wcslen(cmdline), 1023 - wcslen(cmdline), L"%ls", r + 6);
+            break;
+        }
         else if (!strcmp(argv[i], "--")) {
             while (++i < argc) {
                 size_t n = wcslen(cmdline);
@@ -463,15 +484,15 @@ static int host_main(int argc, char** argv) {
         g_cwp_w = recomp_lookup(native32_export(u, "CallWindowProcW"));
         g_cwp_a = recomp_lookup(native32_export(u, "CallWindowProcA"));
         native32_replace(native32_export(native32_module("gdi32.dll"), "CreateDCW"), host_createdcw);
-        {   /* the launch path: lifted programs only, each in its own host runner */
-            uint32_t k = native32_module("kernel32.dll");
-            native32_replace(native32_export(k, "CreateProcessW"), host_createprocessw);
-            native32_replace(native32_export(k, "CreateProcessA"), host_createprocessa);
-        }
         if (g_cwp_w) native32_replace(native32_export(u, "CallWindowProcW"), host_cwp_w);
         if (g_cwp_a) native32_replace(native32_export(u, "CallWindowProcA"), host_cwp_a);
     }
 #endif
+    {   /* the launch path: lifted programs only, each in its own host runner (cmd's pipes too) */
+        uint32_t k = native32_module("kernel32.dll");
+        native32_replace(native32_export(k, "CreateProcessW"), host_createprocessw);
+        native32_replace(native32_export(k, "CreateProcessA"), host_createprocessa);
+    }
     {   /* the lifted kernel32's profile calls (win.ini): the registry sandbox's */
         static const struct { const char* name; recomp_func_t fn; } prof[] = {
             { "WriteProfileStringW", ps_WriteProfileStringW }, { "WriteProfileStringA", ps_WriteProfileStringA },

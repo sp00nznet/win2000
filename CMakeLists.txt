@@ -62,6 +62,20 @@ if(TARGET cmd_rtm)
   target_compile_definitions(cmd_rtm PRIVATE RECOMP_TRACE=1 W2K_SYS="work/rebased-rtm" W2K_NLS="work/sys-rtm" W2K_CSD=0)
 endif()
 
+# cmd's own utilities (pipes: echo hi | find "hi"), on lifted ulib.dll too; build\find.exe and
+# build\more.exe are the runners cmd's CreateProcess reaches (nthost.c, the launch path)
+foreach(util find more)
+  w2k_host(${util} src/nthost.c ${N32}/syscall32.c ${N32}/csr32.c)
+endforeach()
+if(TARGET find)
+  target_compile_definitions(find PRIVATE W2K_EXE="find.exe" W2K_EXE_W=L"find.exe" EXE_BASE=0x01000000u
+    W2K_SYS="work/rebased-util" W2K_NLS="work/sys" W2K_CSD=0x0400 "W2K_MORE_MODS=,{\"ulib.dll\",0x20300000u}")
+endif()
+if(TARGET more)
+  target_compile_definitions(more PRIVATE W2K_EXE="more.com" W2K_EXE_W=L"more.com" EXE_BASE=0x01000000u
+    W2K_SYS="work/rebased-util" W2K_NLS="work/sys" W2K_CSD=0x0400 "W2K_MORE_MODS=,{\"ulib.dll\",0x20300000u}")
+endif()
+
 # Stage 3: accessories on their own lifted user32 + gdi32 (and kernel32, ntdll, msvcrt)
 set(W2K_USER_SYS work/rebased-gui)
 function(w2k_user_host name exe)

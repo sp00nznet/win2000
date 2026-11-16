@@ -10,6 +10,9 @@ export PCRECOMP_MUTE=1 W2K_SCREEN=${W2K_SCREEN:-800x600}
 B=$(cygpath -w "$PWD/work/profile"); D='Documents and Settings'
 py -3 tools/profile.py 'w2k\explorer' "work/profile/C/$D" "C:\\$D" >/dev/null || exit 1
 mkdir -p work/profile/C/TEMP; P="$B\\C\\$D"
+# names for cmd's program search (find, more: the launch path starts their runners)
+mkdir -p work/profile/C/WINNT/system32; : > work/profile/C/WINNT/system32/find.exe; : > work/profile/C/WINNT/system32/more.com
+export PCRECOMP_GUEST_PATH='C:\WINNT\system32'
 # Windows 2000's C:\Program Files\Internet Explorer\iexplore.exe, as a file: the folder window's
 # frame takes its icon from it (htmlfile's DefaultIcon). Never run; the launch path starts only lifted exes.
 IE="work/profile/C/Program Files/Internet Explorer"
