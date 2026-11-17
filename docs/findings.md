@@ -986,6 +986,39 @@ Gaps left: a host DLL that finds a registry function with GetProcAddress is not
 boxed; the notepad window after the open shows no text in the shot (not looked
 into).
 
+### The guest OS's own keys: never the host's
+
+Found from the Win98 project: the winhlp32 and wordpad boxes held
+`Explorer\Shell Folders` Desktop/Personal/Recent/Local AppData as
+C:\Users\<user>\OneDrive\... and ...\AppData\.... A box only shadows what it has,
+so a stage 1 app's host shell32 read the host's User Shell Folders through the
+box and wrote the expanded paths back into it; kernelbase's RegGetValueW was
+not boxed at all (it opens the key itself).
+
+Now (pcrecomp regbox32 `os_owned_key`) these are answered by the box alone,
+seeded or not: HKCU `Software\Microsoft\Windows\CurrentVersion\Explorer` (all of
+it) and `...\Policies`, `Environment`, `Volatile Environment`; HKLM (and its
+WOW6432Node) `...\Explorer\Shell Folders`, `...\User Shell Folders`,
+`...\Policies`, `Windows NT\CurrentVersion\ProfileList`, and any control set's
+`Session Manager\Environment`. RegGetValueA/W go through the box.
+tools/profile.py seeds them from HIVEDEF/HIVESYS (Environment TEMP/TMP,
+Policies\Explorer NoDriveTypeAutoRun 0x95, ComSpec/Path/windir) plus what
+Windows 2000's userenv makes at logon (ProfileList ProfilesDirectory,
+Volatile Environment HOMEDRIVE/HOMEPATH/APPDATA); `DIR` `-` seeds a stage 1 box
+with C:\Documents and Settings\user paths and makes no folders (no file box:
+nothing on the host). interact.py seeds each app's box before it runs.
+HKLM's other Explorer keys (FolderDescriptions, Desktop\NameSpace) still read
+the host's: a stage 1 app's host shell32 needs them, and they hold no user
+paths.
+
+Checked: the 15 boxes cleared and reseeded (no C:\Users, OneDrive, AppData,
+user or machine name left); a PCRECOMP_REGTRACE run of stage 1 wordpad and
+notepad with File > Open: both dialogs open, every Shell Folders, ProfileList,
+Environment and Policies lookup is the box's (`the guest OS's key`), none a
+`host key read`, and the boxes stay clean after. Nothing new under C:\Users or
+work/profile. The explorer box's classes name C:\Windows\System32 (reginst.py:
+the file box's system directory, by design), not a host leak.
+
 ## Windows inside Windows: explorer.exe on a virtual screen (design)
 
 Goal: Windows 2000's own shell (explorer.exe: desktop, taskbar, Start menu)

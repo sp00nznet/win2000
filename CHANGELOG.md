@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+- Host leak: the winhlp32 and wordpad boxes held the host's Shell Folders (C:\Users\<user>\OneDrive\...).
+  pcrecomp regbox32 now answers Windows 2000's own keys (Shell Folders, User Shell Folders, the HKCU
+  Explorer and Policies keys, Environment, Volatile Environment, ProfileList) from the box only, and
+  tools/profile.py seeds them from Windows 2000's INFs (`profile.py BOX - "C:\Documents and Settings"`
+  for a stage 1 box: registry only). interact.py seeds each app's box before its run.
+
 ### Added
 - interact gates on approved lifted-build goldens: shots/golden (local) with their RGB hashes
   in tools/golden.json (committed); `py -3 tools/interact.py --approve [app ...]` re-approves

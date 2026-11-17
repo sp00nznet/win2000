@@ -62,6 +62,10 @@ RUNS = [(app, run, steps) for app in (ARGS or APPS) for run, steps in APPS[app]]
 for app, run, steps in RUNS:
     shots = [t for _, t, _ in steps]
     extra = sum((s for _, _, s in steps), [])
+    # the box's own Shell Folders/Environment/ProfileList (regbox32 never reads the host's): Windows 2000's
+    # C:\Documents and Settings names, registry only (no file box here, so no folders are made)
+    subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'profile.py'), 'w2k\\' + app, '-', r'C:\Documents and Settings'],
+                   check=True, capture_output=True)
     for build in (app, 'nt' + app):
         if not os.path.exists(os.path.join(ROOT, 'build', build + '.exe')): continue   # (no stage 1 build: never the original)
         cmd = [sys.executable, os.path.join(ROOT, 'tools', 'hiddenrun.py'), '--secs', str(int(2 * max(shots)) + 4),
