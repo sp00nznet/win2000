@@ -763,14 +763,105 @@ and the desktop window paints Windows 2000's background colour
   NATIVE32_SYSCALLS=1 (the CLSID keys opened under
   \Registry\Machine\Software\Classes and which one is missing from the box).
 
-Not answered yet in this run: NtOpenProcess, NtQuerySecurityObject,
-NtUserGetIconInfo, NtUserDrawCaptionTemp, NtGdiCreateHalftonePalette,
-NtUserUnregisterHotKey, NtUserCallOneParam 0x18.
+### Stage 7, second session: the taskbar on Linux
 
-### Next
+`shots/linux-ex/taskbar_30.png` (not in git): Windows 2000's desktop colour,
+the taskbar with the Start button (logo and bold "Start", drawn through
+DrawCaptionTemp), the quick-launch gap and the clock. No crash in 30 s.
 
-1. Find the class whose creation fails without clbcatq (above) and seed it
-   in the box, or find why clbcatq's load fails on Windows and do the same.
-2. Then the taskbar and Start button (w32kposix: the tray's window classes,
-   DrawCaptionTemp, GetIconInfo), screenshots, the Start menu.
-3. Run → winmine: the launch path above.
+**Why clbcatq "fails" on Windows (root cause).** It does not fail: its
+DllMain succeeds (`--calltrace`: 21517A60 -> 2152051A -> GetVersionEx ->
+TRUE). While clbcatq's imports resolve, the guest loader finds ole32.dll on
+its search path as the *host's* C:\Windows\system32\ole32.dll;
+NtAreMappedFilesTheSame says it is not the loaded work/rebased-shell ole32,
+so the loader maps "another" ole32 (syscall32 hands back the same lifted
+image) and runs ole32's DllMain a second time (entry 21002CE2, calltrace
+line 78888). That resets ole32's catalog state ([esi+0x18] in ole32's
+sub_2100D690), so after LoadLibrary ole32 sees the state changed and frees
+clbcatq without calling GetCatalogObject. It is a Windows-host loader
+artifact, not Windows 2000 behaviour. The faithful way to the same outcome
+is Windows 2000's own switch: ole32 checks `%windir%\System32\~CLBCATQ.DLL`
+(setup's marker) and, when it exists, never loads the catalog and reads the
+registry. linux_push.sh puts that empty file in explorer's system32; it is
+only GetFileAttributes'd, never loaded.
+
+**The failing CoCreateInstance.** CLSID {ECD4FC4D-521C-11D0-B792-00A0C90312E1}
+(browseui's Shell Rebar BandSite): its InprocServer32 had no default value
+in the box. regbox_lx.py dropped every value naming a host drive *before*
+moving the rebased-shell path (`G:\recomp\...\rebased-shell\browseui.dll` ->
+`C:\WINNT\system32\browseui.dll`). Fixed (rewrite first, then check). The
+values are reginst.py's, from Windows 2000's own self-registration data.
+
+**Explorer's own --sys.** `DIR/sys-ex` holds the shell set (the Win11
+explorer set plus Windows 2000's advapi32), the fonts, NLS files, win32k
+names, ~clbcatq.dll and an empty winmine.exe (a name for Run's search; the
+launch path starts ./winmine-linux, never a file). `root/sys` stays the GUI
+set a launched `NAME-linux` child maps.
+
+```
+tools/linux_push.sh netlab@netlab-linux /tmp/w2k-ex ../pcrecomp-w2k-linux ntexplorer_lx
+# box: J=3 sh linux_build.sh ntexplorer_lx; cd root; cp ../explorer.box out/ex.box
+#      W2K_FIXED_TICK=1000 ../explorer-linux --sys ../sys-ex --regbox out/ex.box --screen 800x600 --out out/ex --shot 30
+```
+
+**pcrecomp (w2k-linux 2b0a275, 0c83c6f).** Answered: GetIconInfo,
+DrawCaptionTemp, CreateHalftonePalette, CreatePaletteInternal, DoPalette,
+GetBitmapBits, (Un)RegisterHotKey, PaintDesktop, SetShellWindowEx,
+EnumDisplayMonitors, EnumDisplaySettings, BuildHwndList (ends with HWND 1),
+GetProcessWindowStation, GetObjectInformation(UOI_NAME), SetWindowPlacement,
+CallOneParam 0x18/0x21/0x1D (the input event), CallHwnd 0x3C/0x39,
+CallHwndLock 0x4D, CallHwndOpt; NtOpenProcess (the guest's own process),
+NtQuerySecurityObject (a NULL DACL), ProcessSessionInformation. Fixed:
+
+- The desktop window had no class: GetClassLong(GetDesktopWindow()) read
+  0x44 (the old "user32 teardown" fault).
+- comctl32's zero-width toolbar got WM_PAINT forever: an empty window gets
+  none.
+- The idle clock jumped straight to the next event, so a shot came before
+  the tray thread had run: now at most 100 ms per idle.
+- The monitor had no handle (MONITOR +0 = 0), so user32's GetMonitorInfo
+  failed and the taskbar placed itself on a 0x0 monitor.
+- No z-order: Progman painted over the taskbar. HWND_TOPMOST now sets
+  WS_EX_TOPMOST, and a topmost window's edge band is left out of the other
+  top-level trees' DCs (one rectangle per DC; real regions later).
+
+One relift: the ole32 seed 0x2108E539 (work/seeds-lx).
+
+**Regression (Linux: this runtime against cd6b8f0's, the same lifted sets).**
+
+| app | shots | differing pixels |
+|---|---|---|
+| calc | 5, 8 (+client) | 0 |
+| freecell | 8, 11 (+client) | 0 (also 0 against shots/linux) |
+| mspaint | 8 (+client) | 0 |
+| wordpad | 9 (+client) | 0 |
+| notepad | 9, 11 client | 0 |
+| sol | 8, 10 client | 0 |
+| notepad / sol whole window | 9, 11 / 8, 10 | 10 / 1, all inside the 16x16 caption icon |
+
+The caption-icon pixels do not come from this runtime: a binary with the
+*old* ntposix.c and w32kposix.c linked against the same lifted objects shows
+the same pixel. They depend on the build (probably an uninitialised read on
+the icon path). Not chased. (The first SetWindowPlacement left wordpad 0x0
+and mspaint at CW_USEDEFAULT: empty and CW_USEDEFAULT rects are now ignored.)
+
+### Handoff (next)
+
+1. **Desktop icons.** The SysListView32 stays 0x0. DefView sizes itself to
+   800x572 before it creates the list view, and its second SetWindowPos has
+   the same size, so no WM_SIZE follows (on Windows the work area changed in
+   between). DefView passes WM_WINDOWPOSCHANGED to DefWindowProcW, yet no
+   kernel DefWindowProc call follows here: read user32's client-side
+   DefWindowProcWorker for 0x47.
+2. **Live mode crashes** (the Start menu click under Xvfb): signal 11 in
+   user32 sub_203172D0 reading 0xE79E7020, a host stack address handed to
+   the guest (an lParam?). `W2K_FIXED_TICK=1000 LIVEARGS="--sys ../sys-ex
+   --regbox out/ex.box --screen 800x600" sh ../linux_live.sh explorer out/lv
+   "sleep 8" "mousemove 25 588" "click 1" "sleep 3" "shot start"`. Scripted
+   `--click 25,588@N` is the other way in.
+3. Then the Start menu and Run -> winmine (build ntwinmine in the same
+   scratch directory: root/sys is its set).
+4. Windows host: stop the guest loader from mapping ole32 twice (the host
+   System32 on its search path); then the Windows run takes the same path.
+5. Not answered: CallNoParam 21 (92 calls), SPI 0x2B/0x66, csr 1:1, 1:12,
+   3:1029, SendNotifyMessage(HWND_BROADCAST).

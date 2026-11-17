@@ -18,7 +18,7 @@ if [ -z "${DISPLAY:-}" ]; then
   XV=$!
   sleep 1
 fi
-"../$APP-linux" --live > "$OUT.log" 2>&1 &
+"../$APP-linux" --live ${LIVEARGS:-} > "$OUT.log" 2>&1 &   # LIVEARGS: explorer's --sys/--regbox/--screen
 P=$!
 W=
 for i in $(seq 50); do W=$(xdotool search --name "Windows 2000" 2>/dev/null | head -1) && [ -n "$W" ] && break; sleep 0.2; done

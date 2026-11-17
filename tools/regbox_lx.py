@@ -61,10 +61,10 @@ def main(src, dst):
             t = int(m2.group(1) or '3', 16)
             data = bytes(int(b, 16) for b in m2.group(2).split(',') if b.strip())
         if t in (1, 2, 7):
-            s = data.decode('utf-16-le', 'replace')
+            s = rewrite(data.decode('utf-16-le', 'replace'))   # (moved first: the lifted modules are on G:)
             if OTHER.search(s):
                 continue
-            data = rewrite(s).encode('utf-16-le')
+            data = s.encode('utf-16-le')
         out.append('%s=hex(%x):%s' % ('@' if not name else '"%s"' % name.replace('\\', '\\\\').replace('"', '\\"'),
                                       t, ','.join('%02x' % b for b in data)))
         nv += 1
