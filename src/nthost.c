@@ -526,6 +526,7 @@ static int host_main(int argc, char** argv) {
         if (g_cwp_a) native32_replace(native32_export(u, "CallWindowProcA"), host_cwp_a);
     }
 #endif
+    native32_mute_winmm();   /* --mute: winmm reports no devices, refuses every open */
     {   /* the launch path: lifted programs only, each in its own host runner (cmd's pipes too) */
         uint32_t k = native32_module("kernel32.dll");
         native32_replace(native32_export(k, "CreateProcessW"), host_createprocessw);

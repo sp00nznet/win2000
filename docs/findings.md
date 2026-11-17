@@ -2353,3 +2353,58 @@ Gaps / next:
   leave cyan trails.
 - Mouse/Keyboard tab strips through rundll32 (in-proc ones draw theirs).
 - Scheduled Tasks / Network and Dial-up: hidden, not lifted.
+
+### Date/Time draws right; charmap, Sound Recorder, Help in explorer (handoff)
+
+shots/exp (local): td5_27.png (Date/Time: today's 16 highlighted, the clock without trails),
+x_charmap_31.png (Character Map), x_sndrec32_31.png (Sound Recorder, no device),
+x_winhlp32_31.png (winhlp32 showing Windows 2000's charmap.hlp).
+
+**The clock's cyan trails.** timedate draws and erases its fat hands with Polygon under
+its own ROP2 (0x21702390: SetROP2(hdc, mode), then Polygon). NtGdiPolyPolyDraw drew on the
+bare host DC (HOST(), not dc()), so the guest's ROP2, pen and brush never reached it: every
+erase drew a new hand. Now through dc() (fn 6, CreatePolyPolygonRgn, takes a fill mode);
+PolylineTo/PolyBezierTo give the pen position back (pcrecomp w32kgdi.c).
+
+**Today's date not drawn.** timedate's calendar draws the selected day with ExtTextOutW, no
+options, after SetBkColor(COLOR_ACTIVECAPTION)/SetTextColor(COLOR_CAPTIONTEXT): the OPAQUE
+background mode makes the blue cell. gdi32's TextOut batch entry (+0xC) takes the mode as
+`lBkMode (DC_ATTR +0x4C) == OPAQUE ? 2 : 1`; GetBkMode reads +0x4C too; SetBkMode writes
+both +0x4C and jBkMode +0x39. A new DC_ATTR filled only +0x39, so every fresh DC batched
+TRANSPARENT: white on white. +0x4C (and lFillMode +0x50, lStretchBltMode +0x54) now filled.
+Side effect, Windows 2000's look: the status bars' size grip now draws (mspaint, wordpad;
+goldens re-approved after checking by eye).
+
+**New programs** (tools/lift_accessories.sh charmap sndrec32 winhlp32; CMakeLists):
+getuname 0x22400000, msacm32 0x22500000; each exe through rebase.py on its own (their bound
+imports pointed at kernel32's and msvcrt's linked bases: faults at 0x7C4FEB3A, 0x7800776E).
+- charmap: needs riched20 (its font box) and a kernel32 ITAIL seed (0x201558F3, code page
+  enumeration; work/seeds/kernel32.dll.json). Enumerating code pages loads the host's
+  converter DLLs named in Nls\CodePage (c_is2022, c_g18030, c_gsm7, c_iscii): refused at the
+  guard now (pcrecomp syscall32.c), the code page reads as not installed. Its font list is the
+  host's fonts (8514oem first).
+- sndrec32 under PCRECOMP_MUTE: pcrecomp native32_mute_winmm() answers the lifted winmm's
+  *GetNumDevs 0 and wave/midi/mixer opens MMSYSERR_NODRIVER; Sound Recorder shows Windows
+  2000's own "a sound device is not installed". No host audio device is opened.
+- winhlp32 C:\WINNT\Help\charmap.hlp (run_explorer.sh expands CHARMAP.HL_ there) shows the
+  topic. Standalone (interact) it opens comdlg's Open box with black places-bar icons outside
+  the profile: not a golden.
+- Clipboard Viewer: Windows 2000's clipbrd is ClipBook, NetDDE (a network service): its own
+  error 0x400F. Not brought further (network).
+- cmd in a window: not done; a console window would be a guest-drawn conhost (see above).
+Typing `charmap` into Run autocompleted to an earlier `winhlp32 ...charmap.hlp` MRU entry;
+scen.sh types `charmap.exe`. interact: charmap start added (21 goldens); sndrec32 left out
+(the host places its message box differently each run).
+
+**Mouse/Keyboard tab strips through rundll32**: they draw (s_ms, s_kb shots); fixed by the
+earlier lifted-comctl32 work. The trackbars' white backgrounds remain.
+
+**wordpad's startup hang**: 47 runs of interact wordpad during lifts and builds, none hung
+(one hang in the first 6, before this, its log was lost: hiddenrun's last limit, 22 s, came
+before the guest's watchdog, 25 s). interact's watchdog is now 2 x the last step - 1 s, so a
+hang leaves its watchdog dump (lock owners, last calls) in shots/wp_ntwordpad.log. Not found.
+
+Gaps / next:
+- The wordpad hang: wait for one with the watchdog dump.
+- charmap's fonts are the host's; Windows 2000's own font list would need the guest's fonts.
+- Trackbar backgrounds white in Mouse/Keyboard; Clipboard (NetDDE); console windows.

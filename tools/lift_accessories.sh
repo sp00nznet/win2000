@@ -12,6 +12,14 @@ fi
 # lifted user32/gdi32 too, ulib moved off user32's 0x20300000
 [ -f $R/ulib.dll ] || { mkdir -p work/accx; 7z e -y -owork/accx work/iso/I386/ULIB.DL_ >/dev/null;
   py -3 ../pcrecomp-w2k/tools/pe/rebase.py work/accx $R ulib.dll=0x22300000 || exit 1; }
+# charmap (getuname), sndrec32 (msacm32), winhlp32: Windows 2000's, on the same set
+if [ ! -f $R/msacm32.dll ]; then
+  mkdir -p work/acc2; for f in CHARMAP.EX_ GETUNAME.DL_ SNDREC32.EX_ MSACM32.DL_ WINHLP32.EX_; do 7z e -y -owork/acc2 work/iso/I386/$f >/dev/null; done
+  py -3 ../pcrecomp-w2k/tools/pe/rebase.py work/acc2 $R getuname.dll=0x22400000 msacm32.dll=0x22500000 || exit 1
+  # each exe by itself through rebase.py: it drops their bound imports (msvcrt's, kernel32's linked addresses)
+  for e in CharMap.exe sndrec32.exe winhlp32.exe; do d=work/acc2x_$e; mkdir -p $d; cp work/acc2/$e $d/
+    py -3 ../pcrecomp-w2k/tools/pe/rebase.py $d $R $e=0x01000000 >/dev/null || exit 1; done
+fi
 for f in find.exe more.com; do [ -f $R/$f ] || cp work/rebased-util/$f $R/; done
 [ -f $R/cmd.exe ] || cp work/rebased/cmd.exe $R/
 # the programs and their own DLLs: the same files as work/rebased-gui
@@ -31,9 +39,12 @@ for app in ${@:-winmine notepad calc clipbrd packager sol freecell mspaint wordp
     sol|freecell) T=nt$app; M="$R/$app.exe $SHELL_MODS $R/cards.dll";;
     mspaint) T=nt$app; M="$R/$app.exe $SHELL_MODS $R/mfc42u.dll";;
     wordpad) T=nt$app; M="$R/$app.exe $SHELL_MODS $R/mfc42u.dll $R/riched20.dll";;
+    charmap) T=nt$app; M="$R/$app.exe $SHELL_MODS $R/getuname.dll $R/riched20.dll";;   # (its font box: RichEdit)
+    sndrec32) T=nt$app; M="$R/$app.exe $SHELL_MODS $R/msacm32.dll";;
     *) T=nt$app; M="$R/$app.exe $SHELL_MODS";;
   esac
   py -3 tools/lift.py $T $M > work/lift_$T.log 2>&1 || { tail -3 work/lift_$T.log; exit 1; }
+  cmd //d //c "$(cygpath -w "$PWD")\build.cmd --target rebuild_cache" >/dev/null 2>&1   # (a new lift's target)
   cmd //d //c "$(cygpath -w "$PWD")\build.cmd --target $T" > work/build_$T.log 2>&1 || { grep -E " error|FAILED" work/build_$T.log | head; exit 1; }
   echo "built $T: $(tail -1 work/lift_$T.log)"
 done

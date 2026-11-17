@@ -46,6 +46,7 @@ APPS = {
     'packager': [('pk', [('start', 6, [])])],
     'mspaint': [('paint', [('start', 9, []), ('line', 11, ['--drag', '100,100,250,180@9.5'])])],
     'wordpad': [('wp', [('start', 9, []), ('typed', 11, ['--type', '0xE900=Hello, Windows 2000@9.5'])])],
+    'charmap': [('cm', [('start', 6, [])])],
     'calc': [('calc', [('start', 5, []),
                        ('12+3=', 8, sum((['--command', '%d@%.1f' % (CALC[c], 5.5 + 0.3 * i)] for i, c in enumerate('12+3=')), []))])],
 }
@@ -62,12 +63,13 @@ for app, run, steps in RUNS:
     shots = [t for _, t, _ in steps]
     extra = sum((s for _, _, s in steps), [])
     for build in (app, 'nt' + app):
+        if not os.path.exists(os.path.join(ROOT, 'build', build + '.exe')): continue   # (no stage 1 build: never the original)
         cmd = [sys.executable, os.path.join(ROOT, 'tools', 'hiddenrun.py'), '--secs', str(int(2 * max(shots)) + 4),
                '--settle', '--scale', '2', '--hold', '3' if app in SLOW else '1.5'] + (['--still-crop', '26'] if app == 'sol' else [])   # event-driven: the step times (x2) are only limits
         for t in shots:
             cmd += ['--shot', str(t)]
         cmd += extra + ['--out', os.path.join(ROOT, 'shots', '%s_%s' % (run, build)), '--',
-                        os.path.join(ROOT, 'build', build + '.exe'), '--mute', '--watchdog', str(int(2 * max(shots)) + 3)]
+                        os.path.join(ROOT, 'build', build + '.exe'), '--mute', '--watchdog', str(int(2 * max(shots)) - 1)]   # (before hiddenrun's last limit: a hang leaves its watchdog dump in the log)
         r = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
         open(os.path.join(ROOT, "shots", "%s_%s.out" % (run, build)), "w").write(r.stdout + r.stderr)   # hiddenrun's timeline, for a missing shot
 import hashlib, json, shutil

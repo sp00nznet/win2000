@@ -12,6 +12,9 @@ py -3 tools/profile.py 'w2k\explorer' "work/profile/C/$D" "C:\\$D" >/dev/null ||
 mkdir -p work/profile/C/TEMP; P="$B\\C\\$D"
 # names for cmd's program search (find, more: the launch path starts their runners)
 mkdir -p work/profile/C/WINNT/system32; : > work/profile/C/WINNT/system32/find.exe; : > work/profile/C/WINNT/system32/more.com
+for x in charmap clipbrd sndrec32 winhlp32; do : > work/profile/C/WINNT/system32/$x.exe; done
+# a help file for winhlp32 (Windows 2000's Character Map help, from the CD)
+mkdir -p work/profile/C/WINNT/Help; [ -f work/profile/C/WINNT/Help/charmap.hlp ] || 7z e -y -owork/profile/C/WINNT/Help work/iso/I386/CHARMAP.HL_ >/dev/null
 export PCRECOMP_GUEST_PATH='C:\WINNT\system32'
 # Windows 2000's C:\Program Files\Internet Explorer\iexplore.exe, as a file: the folder window's
 # frame takes its icon from it (htmlfile's DefaultIcon). Never run; the launch path starts only lifted exes.

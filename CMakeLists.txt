@@ -103,6 +103,9 @@ w2k_user_host(ntnotepad notepad.exe "${W2K_ACC_MODS}")
 w2k_user_host(ntcalc calc.exe "${W2K_ACC_MODS}")
 w2k_user_host(ntclipbrd clipbrd.exe "${W2K_ACC_MODS}")     # RegisterClassA: the ANSI path
 w2k_user_host(ntpackager packager.exe "${W2K_ACC_MODS}")   # RegisterClassA
+w2k_user_host(ntcharmap charmap.exe "${W2K_ACC_MODS},{\"getuname.dll\",0x22400000u},{\"riched20.dll\",0x20700000u}")
+w2k_user_host(ntsndrec32 sndrec32.exe "${W2K_ACC_MODS},{\"msacm32.dll\",0x22500000u}")
+w2k_user_host(ntwinhlp32 winhlp32.exe "${W2K_ACC_MODS}")
 w2k_user_host(ntsol sol.exe "${W2K_ACC_MODS},{\"cards.dll\",0x20500000u}")
 w2k_user_host(ntfreecell freecell.exe "${W2K_ACC_MODS},{\"cards.dll\",0x20500000u}")
 w2k_user_host(ntmspaint mspaint.exe "${W2K_ACC_MODS},{\"mfc42u.dll\",0x20600000u}")
