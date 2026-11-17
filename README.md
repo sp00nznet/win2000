@@ -10,6 +10,12 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 
 ## Status
 
+**Windows 2000 on Linux: done.** Its own explorer, statically lifted, runs on Debian as an
+i386 Linux process in a live X11 window (no Wine, no emulator): the desktop with its icons, the
+taskbar, the Start menu with its items, and Start -> Run -> `winmine` starting the lifted
+Minesweeper. Known gaps: mouse clicks on Start menu items (the keyboard works), submenus,
+Marlett arrows, a launched program draws its own desktop. Details: [docs/linux.md](docs/linux.md).
+
 | Stage | What | State |
 |---|---|---|
 | 1 | Stock accessories lifted on native32 against the host's DLLs | winmine, sol, freecell, notepad and calc run |

@@ -5,6 +5,36 @@ Linux. No QEMU, no VirtualBox, no Wine. The lifted ntdll, kernel32 and msvcrt
 are the same C files the Windows host builds; only the layer under
 `int 2Eh` changes.
 
+## Status: done (desktop, taskbar, Start menu, Run -> winmine)
+
+On netlab's Debian 13 box, Windows 2000's own explorer.exe (with its shell32, browseui,
+comctl32, ole32 ... all lifted) runs as an i386 Linux process in a live X11 window, with
+no Wine and no emulator. Shots: `shots/linux-ex/` (not in git).
+
+**What works**
+- The desktop: Windows 2000's wallpaper colour and its colour icons (My Documents, My Computer,
+  My Network Places, Recycle Bin, Internet Explorer).
+- The taskbar: Start button, the clock in the tray.
+- The Start menu: the "Windows 2000 Professional" banner and its items (Programs, Favorites,
+  Documents, Settings, Search, Help, Run..., Shut Down...) with their icons
+  (`startmenu_items_24.png`, live: `live_start.png`).
+- Start -> R opens shell32's Run dialog; typing `winmine` and Return starts `./winmine-linux`
+  (the lifted Minesweeper's runner) through the launch path (`live_run_typed.png`,
+  `live_run_winmine.png`). Only lifted runners start: anything else gets `[guard]`.
+- The accessories on their own (winmine, calc, notepad, sol, freecell, mspaint, wordpad):
+  scripted (PNG shots) and live (mouse and keyboard under X11).
+
+**Known gaps**
+- Clicking a Start menu item with the mouse does nothing yet; the keyboard (the item's letter)
+  works. browseui's menu filter gets the click on BaseBar (the capture window) and does not pass
+  it on (it probably asks for the point's window client-side).
+- Submenus (Programs -> Accessories -> Notepad) are not reached, so Notepad from the menu is not
+  shown; `./notepad-linux` itself runs.
+- The submenu arrows draw as "8": they are Marlett glyphs, and Marlett is not among the fonts.
+- A launched program opens its own X window over the shell's (each runner draws its own
+  desktop); the Start menu stays open behind the Run dialog.
+- One rectangle of clipping per DC, no real regions; no sound; no real console.
+
 ## What is Windows-specific today
 
 Stage 2 on Windows (`src/nthost.c` + pcrecomp `runtime/native32`) leans on
@@ -1028,5 +1058,70 @@ re-run.
    TB_GETITEMRECT/TB_GETRECT answer, or a GetClientRect on the pager (SysPager 10077 is 127x6).
 2. Then Run -> winmine through ./winmine-linux (not reached this session).
 3. Live mode: re-run the Start click under Xvfb with the bounded draw_icon.
+4. DIB sections: write-back happens on GdiFlush only (ponytail); memcmp per use.
+5. Windows host: ole32's DllMain twice (findings.md).
+
+### Stage 7, fifth session: Start menu items, Run -> winmine (done)
+
+Scratch: `/home/netlab/w2k-s`, deleted at the end. pcrecomp w2k-linux b105870, 18d5a88.
+
+**The items toolbar at x=79, width 50.** Found with a host backtrace (glibc `backtrace()` in
+s_setpos, linked `-rdynamic`: the lifted functions are C functions, so the guest call chain
+shows by name). The caller was comctl32's own toolbar: WM_SIZE -> its autosize ->
+`NewSize`, which returns at once for CCS_NORESIZE. The toolbar tests its *cached* style, which
+comctl32 updates only from WM_STYLECHANGED; NtUserSetWindowLong(GWL_STYLE) sent neither
+WM_STYLECHANGING nor WM_STYLECHANGED, so browseui's CCS_NORESIZE never reached the toolbar and
+it aligned itself to its parent's right edge. Fix: both messages, with a STYLESTRUCT, for
+GWL_STYLE and GWL_EXSTYLE (when the value changes).
+
+**Only "Programs" drew.** Every item was painted, but DrawText's clip stacked:
+- NtGdiGetRandomRgn(CLIPRGN) said a clip region was selected when none was (it answered the
+  visible region for every iNum). Now 0 when no clip is selected, so DrawText restores "none".
+- That restore is batched in the TEB (ExtSelectClipRgn(hdc, NULL)), and Windows 2000's gdi32
+  marks a NULL region with 0x08000000, not 0x80000000: the restore kept the item's clip.
+
+**Run.** A mouse click on an item does not work yet (below); the item's letter does:
+- Messages went to whichever guest thread peeked first. The Start menu's toolbar belongs to
+  the tray thread, but explorer's other threads took its input. Each window now records its
+  creating thread; the posted queue gives a thread only its own windows' messages.
+- WH_GETMESSAGE (browseui's CMBMsgFilter) is called on the hooking thread in GetMessage and
+  PeekMessage, through the same direct call as WH_CBT (one helper, `call_hook`).
+- MSG.pt is the cursor in screen coordinates (it was the lParam); `--sclick` honours the capture.
+- The Run dialog crashed in its WM_PAINT: dialogs never stored DWL_USER (index 8). The guard
+  for a dialog's DIALOG pointer (extra +4) skipped every index. NtUserAttachThreadInput answers 1.
+
+**Live (Xvfb + xdotool, the bounded draw_icon):** Start click (no fault), R, `winmine`,
+Return: `[launch] C:\WINNT\system32\winmine.exe -> ./winmine-linux`, and Minesweeper comes up in
+its own window (`live_start.png`, `live_run_typed.png`, `live_run_winmine.png`).
+
+**Regression (7f8d480's runtime against 18d5a88, the same lifted sets, the same scripts;
+`shots/linux-reg/reg5/`):**
+
+| app | shots | whole window |
+|---|---|---|
+| winmine | 4, 5, 8 | 0 |
+| calc | 5, 8 | 0 |
+| freecell | 8, 11 | 0 |
+| notepad | 9, 11 | 0 |
+| sol | 8, 10 | 0 |
+| mspaint | 8 | 0 |
+| wordpad | 9 | 6034 (the toolbar rows, 2 px higher) |
+
+Wordpad's toolbars sit 2 px higher: MFC changes its toolbars' styles with SetWindowLong, and
+comctl32 now sees them (WM_STYLECHANGED), so it lays them out by the final style. Not yet
+checked against Windows at the pixel level.
+
+**Mouse on the menu items.** With the capture on BaseBar the click reaches the hook, which
+re-sets the capture and lets the message go to BaseBar's DefWindowProc. browseui likely finds
+the window under the point client-side (ChildWindowFromPoint over the WND tree) or by
+WindowFromPoint on MSG.pt in a way we don't answer yet; the next step is a trace of the hook's
+calls for 0x201.
+
+### Handoff (next)
+
+1. Mouse clicks on Start menu items (see above), then submenus (Programs -> Accessories ->
+   Notepad).
+2. Marlett for the submenu arrows (expand MARLETT.TT_ like Tahoma).
+3. A launched runner shares the shell's X window instead of opening its own desktop.
 4. DIB sections: write-back happens on GdiFlush only (ponytail); memcmp per use.
 5. Windows host: ole32's DllMain twice (findings.md).
