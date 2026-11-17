@@ -123,7 +123,7 @@ directory on the Linux box and are deleted afterwards:
 
 ```
 # from Windows (Git Bash), win2000 checkout:
-tools/linux_push.sh netlab@netlab-linux /tmp/w2k-scratch
+tools/linux_push.sh user@linuxbox /tmp/w2k-scratch
 # on the box:
 cd /tmp/w2k-scratch && sh linux_build.sh
 ./cmd-linux --root /tmp/w2k-scratch/root -- /c ver
@@ -210,7 +210,7 @@ menu bar, drop-down and dialogs are drawn the classic Windows 2000 way, so
 there is no Windows reference for them.
 
 ```
-tools/linux_push.sh netlab@netlab-linux /tmp/w2k-scratch ../pcrecomp-w2k-linux ntwinmine
+tools/linux_push.sh user@linuxbox /tmp/w2k-scratch ../pcrecomp-w2k-linux ntwinmine
 # on the box (2.5 minutes on 4 cores):
 cd /tmp/w2k-scratch && sh linux_build.sh ntwinmine && cd root
 W2K_FIXED_TICK=12345 W2K_FIXED_TIME=1000000000 ../winmine-linux --out out/int \
@@ -314,7 +314,7 @@ frame). winmine is unchanged after all of this: 0 differing pixels in
 `int` 4, 5, 8 and `dlg` 8.
 
 ```
-tools/linux_push.sh netlab@netlab-linux /tmp/w2k-scratch ../pcrecomp-w2k-linux ntsol   # (ntcalc, ntnotepad, ntfreecell)
+tools/linux_push.sh user@linuxbox /tmp/w2k-scratch ../pcrecomp-w2k-linux ntsol   # (ntcalc, ntnotepad, ntfreecell)
 # on the box:
 cd /tmp/w2k-scratch && sh linux_build.sh ntsol && cd root
 W2K_FIXED_TICK=12345 W2K_FIXED_TIME=1000000000 ../sol-linux --out out/sol --shot 8 --click 40,60@9 --shot 10
@@ -546,7 +546,7 @@ expand work\iso\I386\COMCTL32.DL_ work\lx\src\comctl32.dll
 py -3 ../pcrecomp-w2k-linux/tools/pe/rebase.py work/lx/src work/lx/reb comctl32.dll=0x20800000
 R=work/rebased-gui; PCRECOMP=../pcrecomp-w2k-linux py -3 tools/lift.py ntmspaint_lx $R/mspaint.exe \
   $R/mfc42u.dll work/lx/reb/comctl32.dll $R/ntdll.dll $R/kernel32.dll $R/msvcrt.dll $R/user32.dll $R/gdi32.dll
-tools/linux_push.sh netlab@netlab-linux /tmp/w2k-s6 ../pcrecomp-w2k-linux ntmspaint_lx
+tools/linux_push.sh user@linuxbox /tmp/w2k-s6 ../pcrecomp-w2k-linux ntmspaint_lx
 # box: sh linux_build.sh ntmspaint_lx; cd root; ../mspaint-linux --out out/mp --shot 8
 ```
 
@@ -740,7 +740,7 @@ of work/seeds plus what Linux runs find: tools/lift.py picks it for the
 expand work\iso\I386\ADVAPI32.DL_ -> work/lx/src; rebase.py work/lx/src work/lx/reb advapi32.dll=0x21F00000
 R=work/rebased-shell; PCRECOMP=../pcrecomp-w2k-linux py -3 tools/lift.py ntexplorer_lx $R/explorer.exe ... $R/mydocs.dll work/lx/reb/advapi32.dll
 reg export HKCU\Software\pcrecomp\w2k\explorer box.reg; py -3 tools/regbox_lx.py box.reg work/lx/explorer.box
-tools/linux_push.sh netlab@netlab-linux /tmp/w2k-ex ../pcrecomp-w2k-linux ntexplorer_lx
+tools/linux_push.sh user@linuxbox /tmp/w2k-ex ../pcrecomp-w2k-linux ntexplorer_lx
 # box: sh linux_build.sh ntexplorer_lx; cd root; cp ../explorer.box out/ex.box
 #      W2K_FIXED_TICK=1000 ../explorer-linux --regbox out/ex.box --screen 800x600 --out out/ex --shot 10
 ```
@@ -835,7 +835,7 @@ launch path starts ./winmine-linux, never a file). `root/sys` stays the GUI
 set a launched `NAME-linux` child maps.
 
 ```
-tools/linux_push.sh netlab@netlab-linux /tmp/w2k-ex ../pcrecomp-w2k-linux ntexplorer_lx
+tools/linux_push.sh user@linuxbox /tmp/w2k-ex ../pcrecomp-w2k-linux ntexplorer_lx
 # box: J=3 sh linux_build.sh ntexplorer_lx; cd root; cp ../explorer.box out/ex.box
 #      W2K_FIXED_TICK=1000 ../explorer-linux --sys ../sys-ex --regbox out/ex.box --screen 800x600 --out out/ex --shot 30
 ```
@@ -1000,7 +1000,7 @@ earlier than show() used to). Check by reverting each one in turn.
 
 ### Stage 7, fourth session: regressions explained, colour icons, the Start menu opens
 
-Scratch: `/home/netlab/w2k-s` (disk-backed; /tmp on the box is tmpfs), deleted at the end.
+Scratch: `~/w2k-s` (disk-backed; /tmp on the box is tmpfs), deleted at the end.
 Shots (not in git): `shots/linux-reg/` (each suspect reverted in turn, then the final table),
 `shots/linux-ex/icons_color_30.png`, `shots/linux-ex/startmenu_24.png`.
 
@@ -1069,7 +1069,7 @@ re-run.
 
 ### Stage 7, fifth session: Start menu items, Run -> winmine (done)
 
-Scratch: `/home/netlab/w2k-s`, deleted at the end. pcrecomp w2k-linux b105870, 18d5a88.
+Scratch: `~/w2k-s`, deleted at the end. pcrecomp w2k-linux b105870, 18d5a88.
 
 **The items toolbar at x=79, width 50.** Found with a host backtrace (glibc `backtrace()` in
 s_setpos, linked `-rdynamic`: the lifted functions are C functions, so the guest call chain
@@ -1134,7 +1134,7 @@ calls for 0x201.
 
 ### Stage 7, sixth session: the mouse in the Start menu, Marlett, one screen
 
-Scratch: `/home/netlab/w2k-s`, deleted at the end. pcrecomp w2k-linux ae39e4c.
+Scratch: `~/w2k-s`, deleted at the end. pcrecomp w2k-linux ae39e4c.
 
 **Mouse clicks on Start menu items.** Two causes, found from the trace and browseui's own code
 (the WH_GETMESSAGE filter, sub_20D16197 -> its mouse handler sub_20D18881):
@@ -1208,7 +1208,7 @@ sets and scripts; `shots/linux-reg/reg6/`):**
 
 ### Stage 7, seventh session: programs from the Start menu, keys, the message box, stacking
 
-Scratch: `/home/netlab/w2k-s` (disk-backed), deleted at the end. pcrecomp w2k-linux fd9436e.
+Scratch: `~/w2k-s` (disk-backed), deleted at the end. pcrecomp w2k-linux fd9436e.
 Shots (not in git): `shots/linux-s7/` (`s7_*.png` are the ones named above).
 
 **Start -> Programs -> Accessories -> Notepad: "Unable to run this command"** (`s7_before_unable_to_run.png`).
@@ -1290,7 +1290,7 @@ sets and scripts; `shots/linux-reg/reg7/`):**
 
 ### Stage 7, eighth session: the taskbar button, icons, the Run dialog's event (done)
 
-Scratch: `/home/netlab/w2k-s8` (disk-backed), deleted at the end. pcrecomp w2k-linux a820093.
+Scratch: `~/w2k-s8` (disk-backed), deleted at the end. pcrecomp w2k-linux a820093.
 Shots (not in git): `shots/linux-s8/` (`s8_*.png`). A live session's syscall trace can now be
 switched on and off around one click: `kill -USR1 PID` (ntposix, both trace flags).
 
