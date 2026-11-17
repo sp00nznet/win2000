@@ -961,3 +961,72 @@ earlier than show() used to). Check by reverting each one in turn.
 4. The intermittent signal 11 at 0x1236 (thread race).
 5. Icon images: the 4 bpp DIB section bits.
 6. Windows host: ole32's DllMain twice (findings.md, "Bug (Windows host, for later)").
+
+### Stage 7, fourth session: regressions explained, colour icons, the Start menu opens
+
+Scratch: `/home/netlab/w2k-s` (disk-backed; /tmp on the box is tmpfs), deleted at the end.
+Shots (not in git): `shots/linux-reg/` (each suspect reverted in turn, then the final table),
+`shots/linux-ex/icons_color_30.png`, `shots/linux-ex/startmenu_24.png`.
+
+**The sol/mspaint/wordpad diffs (cause found by reverting one change at a time).** Neither
+suspect from the last handoff (the frame flag, the earlier WM_SIZE) changed anything. The cause
+was WND +0x64 hrgnUpdate: user32's UpdateWindow tests it client-side, so a new child (sol's and
+mspaint's status bars) now paints at once, *before* its parent, as on Windows. That exposed
+two runtime bugs:
+- WS_CLIPCHILDREN was ignored: sol's frame painted green over its status bar's top border. The
+  Win11 golden (`shots/golden/sol_ntsol_10.png`) has the line, so this was a regression. Fix: a
+  WS_CLIPCHILDREN window's DC leaves out a visible child that spans a whole edge (the same
+  one-rectangle band rule as the topmost taskbar).
+- ncpaint's thick-frame loop called edge(), which draws two rings, once per pixel step, so its
+  last ring fell in the client's first column/row. That wiped mspaint's status-pane edge (a
+  regression) and had always hidden the outer ring of wordpad's sunken client edge. Wordpad
+  now shows the full 808080/404040 + white edge, so its new output is the faithful one.
+
+**Regression, final (0c83c6f's runtime against this one, the same lifted sets, AE):**
+
+| app | shots | client | whole window |
+|---|---|---|---|
+| winmine | 4, 5, 8 | 0 | 0 |
+| calc | 5, 8 | 0 | 142 (the caption icon) |
+| freecell | 8, 11 | 0 | 0 |
+| notepad | 9, 11 | 0 | 192 (the caption icon) |
+| sol | 8, 10 | 0 | 158 (the caption icon) |
+| mspaint | 8 | 0 | 168 (the caption icon) |
+| wordpad | 9 | 858 (columns 0 and 759: the client edge, now right) | 1034 |
+
+The caption-icon box (16x15) changed because the icon was garbage before (reads past the
+colour bitmap, the old "build-dependent" pixels) and is drawn properly now.
+
+**Colour desktop icons** (`icons_color_30.png`: My Documents, My Computer, My Network Places,
+Recycle Bin and Internet Explorer as Windows 2000 draws them). Three causes:
+- NT keeps a colour icon's mask at twice its height (the AND mask on top). draw_icon took the
+  mask's height as the icon's, so it squashed the icon and read past the colour bitmap.
+- DrawIconEx DI_MASK/DI_IMAGE were drawn as DI_NORMAL. comctl32's image list takes an icon
+  apart with them.
+- DIB sections: bits the program writes are loaded into the pixels before GDI uses the bitmap
+  (changed bytes only, against a shadow copy), and NtGdiFlush writes GDI's drawing back into
+  the bits.
+
+**The "thread race" was not a race.** run_event printed the event's kind from a six-name array;
+`--sclick` is the seventh, so printf read a garbage pointer (0x1236). 6/6 runs are clean now.
+
+**The Start menu toolbar's 5x4.** NtUserSetProp was a no-op, and user32's GetProp reads
+WND +0x68 ppropList client-side. comctl32 never found a window's SUBCLASS_HEADER, so on unhooking
+it restored DefWindowProcW as the "original" procedure. The menu toolbars then answered every
+TB_ message with 0. With properties kept, the Start menu opens with the "Windows 2000
+Professional" banner (`startmenu_24.png`). The static items' toolbar has its 10 buttons and an
+ideal size of 123x376, but browseui's own WM_WINDOWPOSCHANGED handling re-places it at x=79,
+width 50 after MenuSite gives it (0,5,127x376). So the items are mostly clipped.
+
+draw_icon now bounds every read to its own bitmap (the live-mode fault). The live click was not
+re-run.
+
+### Handoff (next)
+
+1. Start menu items: find why the band moves the static toolbar to x=79 with width 50
+   (NtUserSetWindowPos 0x4F/0x32 from inside its WM_WINDOWPOSCHANGED). Likely a metric or
+   TB_GETITEMRECT/TB_GETRECT answer, or a GetClientRect on the pager (SysPager 10077 is 127x6).
+2. Then Run -> winmine through ./winmine-linux (not reached this session).
+3. Live mode: re-run the Start click under Xvfb with the bounded draw_icon.
+4. DIB sections: write-back happens on GdiFlush only (ponytail); memcmp per use.
+5. Windows host: ole32's DllMain twice (findings.md).
