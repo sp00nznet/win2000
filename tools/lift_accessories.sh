@@ -5,20 +5,20 @@
 R=work/rebased-shell
 if [ ! -f $R/nddeapi.dll ]; then
   mkdir -p work/accx; for f in WINMM.DL_ WINSPOOL.DR_ OLECLI32.DL_ OLESVR32.DL_ NDDEAPI.DL_; do 7z e -y -owork/accx work/iso/I386/$f >/dev/null; done
-  py -3 ../pcrecomp-w2k/tools/pe/rebase.py work/accx $R winmm.dll=0x21E00000 winspool.drv=0x21F00000 \
+  py -3 "${PCRECOMP:-../pcrecomp}"/tools/pe/rebase.py work/accx $R winmm.dll=0x21E00000 winspool.drv=0x21F00000 \
     olecli32.dll=0x22000000 olesvr32.dll=0x22100000 nddeapi.dll=0x22200000 || exit 1
 fi
 # cmd (MessageBeep, GetProcessWindowStation, ...) and ulib (CharUpperW, wsprintfA) import user32:
 # lifted user32/gdi32 too, ulib moved off user32's 0x20300000
 [ -f $R/ulib.dll ] || { mkdir -p work/accx; 7z e -y -owork/accx work/iso/I386/ULIB.DL_ >/dev/null;
-  py -3 ../pcrecomp-w2k/tools/pe/rebase.py work/accx $R ulib.dll=0x22300000 || exit 1; }
+  py -3 "${PCRECOMP:-../pcrecomp}"/tools/pe/rebase.py work/accx $R ulib.dll=0x22300000 || exit 1; }
 # charmap (getuname), sndrec32 (msacm32), winhlp32: Windows 2000's, on the same set
 if [ ! -f $R/msacm32.dll ]; then
   mkdir -p work/acc2; for f in CHARMAP.EX_ GETUNAME.DL_ SNDREC32.EX_ MSACM32.DL_ WINHLP32.EX_; do 7z e -y -owork/acc2 work/iso/I386/$f >/dev/null; done
-  py -3 ../pcrecomp-w2k/tools/pe/rebase.py work/acc2 $R getuname.dll=0x22400000 msacm32.dll=0x22500000 || exit 1
+  py -3 "${PCRECOMP:-../pcrecomp}"/tools/pe/rebase.py work/acc2 $R getuname.dll=0x22400000 msacm32.dll=0x22500000 || exit 1
   # each exe by itself through rebase.py: it drops their bound imports (msvcrt's, kernel32's linked addresses)
   for e in CharMap.exe sndrec32.exe winhlp32.exe; do d=work/acc2x_$e; mkdir -p $d; cp work/acc2/$e $d/
-    py -3 ../pcrecomp-w2k/tools/pe/rebase.py $d $R $e=0x01000000 >/dev/null || exit 1; done
+    py -3 "${PCRECOMP:-../pcrecomp}"/tools/pe/rebase.py $d $R $e=0x01000000 >/dev/null || exit 1; done
 fi
 for f in find.exe more.com; do [ -f $R/$f ] || cp work/rebased-util/$f $R/; done
 [ -f $R/cmd.exe ] || cp work/rebased/cmd.exe $R/

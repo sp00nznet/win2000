@@ -21,6 +21,42 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 
 How it works: [docs/architecture.md](docs/architecture.md).
 
+## Getting Started
+
+You need **your own Windows 2000 CD**: an image (`.iso`) of Windows 2000
+Professional with Service Pack 4, or the CD itself. Nothing from Windows is in
+this repository or downloaded for you; everything is extracted, lifted and
+built on your machine from your copy.
+
+1. Download this repository (the green **Code** button, then **Download ZIP**)
+   and unzip it, or `git clone` it, into a folder with no spaces in its path
+   and about 25 GB free.
+2. Windows: double-click **`Setup.cmd`** and give it your CD image when it
+   asks (or `Setup.cmd -Iso D:\iso\win2000.iso`; a drive letter or a
+   folder holding `I386` works too).
+3. Double-click **`Windows 2000 (recomp).cmd`** in that folder: Windows 2000's
+   own explorer starts in an 800x600 window of its own, with its desktop,
+   taskbar and Start menu, and the accessories, Control Panel and cmd behind it.
+
+The setup asks before installing anything it needs (Python 3, pefile and
+capstone, Git for Windows, 7-Zip, Visual Studio's C++ Build Tools, CMake,
+Ninja, and the [pcrecomp](https://github.com/sp00nznet/pcrecomp) toolkit
+beside this folder, or wherever `PCRECOMP` points). The first run takes about
+2 hours and 22 GB (25 GB with `-Linux`); a rerun skips every finished step (`-Force` redoes them,
+`-Yes` answers yes to every question). Its log is `setup.log`. The guest sees
+only `work\profile` as its drives, has a registry box of its own
+(`HKCU\Software\pcrecomp\w2k`) and makes no sound.
+
+**Linux.** The lift is made on Windows (it needs the CD's files, the registry
+box seeded in the Windows registry and MSVC for one stub DLL), and Linux builds
+and runs it. On Windows run `Setup.cmd -Linux`, which also lifts the Linux
+sets and fills `work\linux` (about 2 GB, and 30 minutes more); copy that folder into this
+repo on the Linux machine as `work/linux`, then run **`./setup.sh`** there. It
+needs `gcc -m32` and the i386 Xlib (it offers to install them with apt), builds
+explorer and the programs its Start menu starts as i386 Linux programs (about
+an hour on four cores, and about 6 GB with the folder), and leaves **`Windows 2000 (recomp).sh`**, which opens explorer in
+an X11 window. Details: [docs/linux.md](docs/linux.md).
+
 ## Status
 
 **Windows 2000 on Linux: done.** Its own explorer, statically lifted, runs on Debian as an
@@ -54,11 +90,18 @@ and fails only with `--strict`. After a deliberate change, or on a new display, 
 shots by eye and against stage 1, then `py -3 tools/interact.py --approve [app ...]` and commit
 tools/golden.json.
 
-## Building
+## Building by hand
+
+`Setup.cmd` does all of this; `tools/setup.ps1` is the whole order, command
+for command (extract `I386`, expand into `work/sys`, rebase into
+`work/rebased*`, `tools/lift_explorer.sh`, `tools/lift_accessories.sh`,
+`build.cmd`, `tools/reginst.py` and `tools/profile.py`).
 
 Prerequisites: Visual Studio 2022 (C++ x86 tools), CMake, Ninja, Python 3
-with `capstone` and `pefile`, 7-Zip, and a pcrecomp checkout at
-`../pcrecomp-w2k` (or `-DPCRECOMP=...` and `PCRECOMP=...`).
+with `capstone` and `pefile`, 7-Zip, Git for Windows (its bash runs
+`tools/*.sh`), and a pcrecomp checkout at `../pcrecomp` (or `PCRECOMP=...`,
+which `tools/*`, `tools/lift.py` and the CMake build all take, or
+`-DPCRECOMP=...`).
 
 1. Extract your Windows 2000 CD's `I386` folder, then expand the files you
    need into `work/sys`:
@@ -90,7 +133,7 @@ SORTKEY.NL_ SORTTBLS.NL_`) into `work/sys`, then rebase the system DLLs out
 of the host's way and lift all four:
 
 ```
-py -3 ..\pcrecomp-w2k\tools\pe\rebase.py work\sys work\rebased cmd.exe ntdll.dll=0x20000000 kernel32.dll=0x20100000 msvcrt.dll=0x20200000
+py -3 ..\pcrecomp\tools\pe\rebase.py work\sys work\rebased cmd.exe ntdll.dll=0x20000000 kernel32.dll=0x20100000 msvcrt.dll=0x20200000
 py -3 tools\lift.py cmd work\rebased\cmd.exe work\rebased\ntdll.dll work\rebased\kernel32.dll work\rebased\msvcrt.dll
 build.cmd --target cmd
 set PCRECOMP_MUTE=1

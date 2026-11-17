@@ -4,5 +4,5 @@
 D=${2:-work/rebased-shell}
 for f in "$D"/*.dll "$D"/*.exe; do
   b=$(basename "$f" | tr A-Z a-z)
-  py -3 "${PCRECOMP:-../pcrecomp-w2k}/tools/disasm/seed_from_log.py" "$1" "$f" --seeds "work/seeds/$b.json" 2>&1 | grep " + " | sed "s|^|$b: |"
+  py -3 "${PCRECOMP:-../pcrecomp}/tools/disasm/seed_from_log.py" "$1" "$f" --seeds "work/seeds/$b.json" 2>&1 | grep " + " | sed "s|^|$b: |"
 done

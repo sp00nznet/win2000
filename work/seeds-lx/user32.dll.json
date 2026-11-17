@@ -1,0 +1,17 @@
+[
+ {
+  "address": 540049393,
+  "address_hex": "0x20307FF1",
+  "note": "indirect call observed at runtime"
+ },
+ {
+  "address": 540178233,
+  "address_hex": "0x20327739",
+  "note": "indirect call observed at runtime"
+ },
+ {
+  "address": 540336889,
+  "address_hex": "0x2034E2F9",
+  "note": "indirect call observed at runtime"
+ }
+]

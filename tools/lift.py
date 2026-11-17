@@ -16,7 +16,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PCR = os.environ.get('PCRECOMP', os.path.join(ROOT, '..', 'pcrecomp-w2k'))
+PCR = os.environ.get('PCRECOMP', os.path.join(ROOT, '..', 'pcrecomp'))
 TOOLS = os.path.join(PCR, 'tools')
 sys.path[:0] = [os.path.join(TOOLS, 'lift'), os.path.join(TOOLS, 'pe')]
 from drive32 import lift_image  # noqa: E402

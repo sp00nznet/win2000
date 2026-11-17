@@ -14,7 +14,7 @@ Explorer's UserAssist (the host's own launches), are left out.
 import re, sys
 
 USER = r'\REGISTRY\USER\S-1-5-21-1-2-3-1000'
-SYS = [(re.compile(r'[A-Z]:\\recomp\\pc\\win2000\\work\\rebased-shell', re.I), r'C:\\WINNT\\system32'),
+SYS = [(re.compile(r'[A-Z]:\\(?:[^\\:"]+\\)*?work\\rebased-shell', re.I), r'C:\\WINNT\\system32'),
        (re.compile(r'C:\\Windows\\System32', re.I), r'C:\\WINNT\\system32'),
        (re.compile(r'C:\\Windows\b', re.I), r'C:\\WINNT')]
 OTHER = re.compile(r'\b[ABD-Z]:\\', re.I)

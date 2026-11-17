@@ -14,8 +14,8 @@ INC="-Ipcrecomp/runtime/recomp32 -Ipcrecomp/runtime/native32 -Igen/$APP"
 CF="-m32 -fno-strict-aliasing -fwrapv -fno-pie $DEFS $INC"
 O=obj/$APP
 mkdir -p "$O"
-# the lifted C, unoptimised (as pcrecomp_gen.cmake does)
-find "gen/$APP" -name '*.c' | while read -r f; do
+# the lifted C, unoptimised (as pcrecomp_gen.cmake does; recomp_part.c, a part DLL's table, is left out there too)
+find "gen/$APP" -name '*.c' ! -name recomp_part.c | while read -r f; do
   o=$O/$(echo "$f" | tr / _ | sed 's/\.c$/.o/')
   [ "$o" -nt "$f" ] || echo "$f $o"
 done | xargs -r -P "$J" -n 2 sh -c 'gcc '"$CF"' -O0 -w -c "$0" -o "$1"'

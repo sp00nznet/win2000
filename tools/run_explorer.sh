@@ -3,6 +3,7 @@
 # on hiddenrun's private desktop; shots/exp/NAME_<t>.png and .log. $EXARGS go to ntexplorer.
 # Fails (exit 1) if any host module other than the allowed proxies was mapped into the guest.
 N=$1; S=${2:-20}; shift 2 2>/dev/null
+mkdir -p shots/exp
 export PCRECOMP_MUTE=1 W2K_SCREEN=${W2K_SCREEN:-800x600}
 # a private Windows 2000 profile (tools/profile.py): never the host's Start Menu, Desktop or AppData
 # inside the file box (pcrecomp syscall32.c): the guest's drives are work/profile/<letter>, C:\ is

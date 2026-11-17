@@ -174,7 +174,7 @@ screen, forwards input, and gives each a taskbar button.
 |---|---|
 | Lifter, disassembler, rebase | pcrecomp `tools/` |
 | NT services, csrss, win32k (Win11) | pcrecomp `runtime/native32/` (`syscall32.c`, `csr32.c`, `w32kuser.c`, `w32kgdi.c`, `regbox32.c`) |
-| NT services, win32k (Linux) | pcrecomp branch `w2k-linux`: `ntposix.c`, `w32kposix.c`, `w32klayout.c` |
+| NT services, win32k (Linux) | pcrecomp `runtime/native32/`: `ntposix.c`, `w32kposix.c`, `w32klayout.c` |
 | Hosts, launch path | this repo, `src/` |
 | Lifting, profiles, registry seeding, harness | this repo, `tools/` |
 | Findings, session by session | `docs/findings.md` (Win11), `docs/linux.md` (Linux) |
