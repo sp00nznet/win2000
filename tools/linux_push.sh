@@ -11,7 +11,7 @@ tar cf - -C src/gen "$APP" | ssh "$HOST" "tar xf - -C $DIR/gen"
 tar cf - -C "$PCR/runtime" recomp32/recomp_types.h native32/ntposix.c native32/ntposix.h \
     native32/w32klayout.c native32/w32klayout.h native32/w32kposix.c native32/w32kposix.h | ssh "$HOST" "tar xf - -C $DIR/pcrecomp/runtime"
 tar cf - src/nthost_linux.c -C tools linux_build.sh | ssh "$HOST" "tar xf - -C $DIR && mv $DIR/src/linux_build.sh $DIR/ 2>/dev/null; true"
-if [ -d "src/gen/$APP/shell32" ]; then
+if [ -d "src/gen/$APP/explorer" ]; then
   # the shell: the Win11 explorer set's modules, Windows 2000's advapi32, the registry box
   # (tools/regbox_lx.py, at DIR/explorer.box) and the private profile under the guest's C:\
   tar cf - -C work/rebased-shell explorer.exe ntdll.dll kernel32.dll msvcrt.dll user32.dll gdi32.dll comctl32.dll \

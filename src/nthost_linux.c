@@ -309,6 +309,7 @@ static void* host_main(void* rcp) {
     for (size_t i = 0; i < sizeof g_mods / sizeof g_mods[0]; i++) {
         char p[PATH_MAX + 64];
         snprintf(p, sizeof p, "%s/%s", sys, g_mods[i].name);
+        if (getenv("W2K_SKIP") && strstr(getenv("W2K_SKIP"), g_mods[i].name)) continue;   /* (W2K_SKIP=a.dll,b.dll: not mapped) */
         if (!ntp_map(p, g_mods[i].base, g_mods[i].name)) exit(1);
     }
 #ifdef W2K_GUI

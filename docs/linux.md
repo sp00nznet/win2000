@@ -674,3 +674,103 @@ with `J=3`.
 4. mspaint: the canvas's DIB section (`CreateDIBSection ... bits are not
    read back`).
 5. calc 8 / sol 10 baseline drift (see above).
+
+## Stage 7 on Linux: explorer (in progress, handoff)
+
+**Merge.** pcrecomp `w2k-linux` has origin/main (a9fe1aa) merged in
+(e13a149, no conflicts). The Linux backend files (ntposix, w32kposix,
+w32klayout) were not touched by main; only the lifter tools changed. With
+the merged runtime, winmine-linux's `int` 4, 5, 8 and 10 shots are
+pixel-identical (0 differing) to the earlier Linux shots in `shots/linux`.
+(Against the Windows build's shots, int 5 is now 107 and int 10 37,852: the
+Windows goldens moved since Stage 3, the Linux output did not.)
+With this stage's runtime (registry box, unwind, RPC guard, stack growth,
+image restore) winmine-linux, rebuilt from today's `src/gen/ntwinmine`,
+is again 0 differing at int 4, 5, 8 and 10. linux_build.sh/linux_push.sh
+key the explorer build on `gen/APP/explorer` (today's ntwinmine lift has
+shell32 in it too).
+
+**The set.** `ntexplorer_lx` = the Win11 explorer set (work/rebased-shell:
+explorer, ntdll, kernel32, msvcrt, user32, gdi32, comctl32, shlwapi,
+shell32, browseui, shdocvw, ole32, oleaut32, rpcrt4, actxprxy, clbcatq,
+mydocs) plus **Windows 2000's own advapi32** at 0x21F00000 (work/lx/reb). On
+Windows advapi32 is the host's, boxed; here there is no host registry, so
+the lifted advapi32's Reg* reach the guest ntdll and ntposix's registry box.
+Catalogs are work/cat-lx (copied from work/cat), seeds work/seeds-lx (a copy
+of work/seeds plus what Linux runs find: tools/lift.py picks it for the
+`_lx` sets). 132,290 functions; about 10 minutes to lift, 8 to build (J=3).
+
+```
+expand work\iso\I386\ADVAPI32.DL_ -> work/lx/src; rebase.py work/lx/src work/lx/reb advapi32.dll=0x21F00000
+R=work/rebased-shell; PCRECOMP=../pcrecomp-w2k-linux py -3 tools/lift.py ntexplorer_lx $R/explorer.exe ... $R/mydocs.dll work/lx/reb/advapi32.dll
+reg export HKCU\Software\pcrecomp\w2k\explorer box.reg; py -3 tools/regbox_lx.py box.reg work/lx/explorer.box
+tools/linux_push.sh netlab@netlab-linux /tmp/w2k-ex ../pcrecomp-w2k-linux ntexplorer_lx
+# box: sh linux_build.sh ntexplorer_lx; cd root; cp ../explorer.box out/ex.box
+#      W2K_FIXED_TICK=1000 ../explorer-linux --regbox out/ex.box --screen 800x600 --out out/ex --shot 10
+```
+
+**The registry box (POSIX).** ntposix keeps one tree of keys and values in
+memory, seeded with the NLS/International table it had, then loaded from
+the box file (`ntp_regbox`, `--regbox FILE`) and rewritten after every
+write. Nothing else is read or written: no host registry exists. The file is
+text, `[\Registry\...]` per key and `"name"=hex(T):..` per value.
+tools/regbox_lx.py makes it from the Windows box (reginst.py's COM classes,
+profile.py's folders and colours), with paths moved to C:\WINNT\system32 and
+values naming another host drive, and UserAssist, left out. Services: Open/
+CreateKey, Query/Set/Delete/EnumerateValueKey, Query/Enumerate/DeleteKey,
+FlushKey, NotifyChangeKey (pending forever).
+
+**The drive sandbox (POSIX).** Already the shape it needs: the guest sees
+only the mounts (C: = the scratch root, C:\WINNT\system32 = root/sys), `..`
+stops at a mount's root, and now a symlink anywhere on a path is refused, so
+nothing under the root leads out of it. The profile (work/profile/C/
+Documents and Settings: the Start Menu's .lnk files point at
+C:\WINNT\system32\*.exe) goes to root/, and the guest's environment has
+USERPROFILE, ALLUSERSPROFILE, APPDATA, ProgramFiles and HOMEPATH under C:.
+
+**The guard.** Unchanged in ntposix (NtCreateProcess refused; an EXE that is
+not lifted is never mapped). nthost_linux's launch path replaces kernel32's
+CreateProcessW/A: the program's name must have a lifted runner next to
+ours (winmine.exe: ./winmine-linux), which starts as our child process
+(same --root, --live if we are live; it dies with us). Anything else prints
+`[guard] ...: a program that is not lifted: not run` and fails. Not yet
+exercised (explorer does not reach the Run dialog).
+
+**New in ntposix** (all also needed by any bigger guest): I/O completion
+ports (the thread pool), the global atom table, RtlUnwind over the guest's
+fs:[0] chain (the guest's own ends in NtContinue, which a lift cannot do),
+the RPC client call guard (ole32 calls rpcss, which does not exist: the
+call fails with the status instead of raising), a thread stack grows into
+its reserved pages, and a lifted image mapped again gets its writable
+sections back (as syscall32.c). Host: GetUserNameW/A answer "user" (advapi32
+asks LSA over \PIPE\lsarpc).
+
+**State.** explorer-linux runs its process start, the tray thread starts,
+and the desktop window paints Windows 2000's background colour
+(`shots/linux-ex/ex1_10.png`, 800x600, 58,110,165). Then:
+
+- With clbcatq mapped, ole32 enters the COM+ catalog: clbcatq creates
+  C:\WINNT\Registration\R000000000001.clb (52 bytes), and a vtable call
+  inside its setup (sub_21547DA0, `call [ecx+0xc8]`) reads NULL, then a
+  call to 0x003A0043 ("C:") faults. On Windows (findings, "clbcatq's failed
+  load, twice") clbcatq's load fails and ole32 uses the registry; why it
+  fails there is not known yet.
+- With `W2K_SKIP=clbcatq.dll` (a debug switch in nthost_linux: the module
+  is not mapped, so its load fails as on Windows), ole32 goes on, then
+  explorer starts shutting down (NtUserUnregisterHotKey) and ole32's
+  teardown faults in user32 sub_2032348C reading 0x44. Most likely a
+  CoCreateInstance that the desktop needs failed: trace it with
+  NATIVE32_SYSCALLS=1 (the CLSID keys opened under
+  \Registry\Machine\Software\Classes and which one is missing from the box).
+
+Not answered yet in this run: NtOpenProcess, NtQuerySecurityObject,
+NtUserGetIconInfo, NtUserDrawCaptionTemp, NtGdiCreateHalftonePalette,
+NtUserUnregisterHotKey, NtUserCallOneParam 0x18.
+
+### Next
+
+1. Find the class whose creation fails without clbcatq (above) and seed it
+   in the box, or find why clbcatq's load fails on Windows and do the same.
+2. Then the taskbar and Start button (w32kposix: the tray's window classes,
+   DrawCaptionTemp, GetIconInfo), screenshots, the Start menu.
+3. Run → winmine: the launch path above.
