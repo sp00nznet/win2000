@@ -2408,3 +2408,28 @@ Gaps / next:
 - The wordpad hang: wait for one with the watchdog dump.
 - charmap's fonts are the host's; Windows 2000's own font list would need the guest's fonts.
 - Trackbar backgrounds white in Mouse/Keyboard; Clipboard (NetDDE); console windows.
+
+### Bug (Windows host, for later): the guest loader runs ole32's DllMain twice
+
+Found from the Linux side (docs/linux.md, Stage 7 second session); pcrecomp-w2k
+is not changed for it yet.
+
+- **Symptom.** In the Windows-host explorer run, clbcatq.dll "fails to load"
+  and ole32 falls back to the registry. Its DllMain in fact succeeds
+  (`--calltrace`: 21517A60 -> 2152051A -> GetVersionEx -> TRUE).
+- **Cause.** While clbcatq's imports resolve, the guest loader's search path
+  finds ole32.dll as the host's `C:\Windows\system32\ole32.dll`.
+  NtAreMappedFilesTheSame says that is not the already-loaded
+  work/rebased-shell ole32, so the loader maps a second "ole32" (syscall32
+  hands back the same lifted image) and calls ole32's entry point again
+  (21002CE2, calltrace line 78888). The second DLL_PROCESS_ATTACH resets
+  ole32's catalog state ([esi+0x18] in sub_2100D690); after LoadLibrary ole32
+  sees the state changed and frees clbcatq without calling GetCatalogObject.
+- **Not Windows 2000 behaviour**: a host-path artifact. On Linux the guest's
+  drives exist only in the sandbox, so it does not happen there; Linux takes
+  Windows 2000's own `System32\~CLBCATQ.DLL` switch instead.
+- **Fix later.** The guest's loader must never see the host System32: map
+  the guest's system directory to the lifted set only (as the Linux sandbox
+  does), or answer NtAreMappedFilesTheSame / the module lookup by base name
+  for a lifted image that is already loaded. Then the Windows run takes the
+  same path as Linux (and the ~CLBCATQ.DLL marker decides).

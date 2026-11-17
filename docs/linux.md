@@ -865,3 +865,99 @@ and mspaint at CW_USEDEFAULT: empty and CW_USEDEFAULT rects are now ignored.)
    System32 on its search path); then the Windows run takes the same path.
 5. Not answered: CallNoParam 21 (92 calls), SPI 0x2B/0x66, csr 1:1, 1:12,
    3:1029, SendNotifyMessage(HWND_BROADCAST).
+
+### Stage 7, third session: desktop icons on Linux
+
+`shots/linux-ex/icons_30.png` (not in git): the desktop with My Documents,
+My Computer, My Network Places, Recycle Bin and Internet Explorer, labels in
+MS Sans Serif, under the taskbar. The icon images are coarse (the 4 bpp
+CreateDIBSection path, "bits are not read back"): next to fix.
+
+Four root causes, each in the shared runtime (pcrecomp w2k-linux):
+
+1. **WFSENDSIZEMOVE.** DefView was created at 800x572 and shown with
+   SetWindowPos(SWP_SHOWWINDOW|NOSIZE|NOMOVE), which went to DefWindowProc's
+   WM_WINDOWPOSCHANGED with NOSIZE set, so DefView never got its first
+   WM_SIZE (the one that sizes the list view). win32k sends a window's owed
+   WM_SIZE/WM_MOVE on the first WINDOWPOSCHANGED that finds it visible;
+   w32kposix's server DefWindowProc now does.
+2. **hrgnUpdate.** comctl32's list view starts WM_PAINT with GetUpdateRect,
+   which user32 answers client-side from WND +0x64 (hrgnUpdate) / the
+   internal-paint bits: NULL meant "nothing to paint", it never called
+   BeginPaint, and the window got WM_PAINT forever (the virtual clock never
+   advanced). A dirty window now holds HRGN_FULL (1) there, and
+   NtUserGetUpdateRect is answered. (A WM_PAINT that never calls BeginPaint
+   also drops its frame flag now, so it cannot loop either.)
+3. **WM_NOTIFYFORMAT.** DefWindowProc answered 0 to NF_QUERY, so the list view
+   sent ANSI notifies (LVN_GETDISPINFOA, -150) that the Unicode DefView
+   ignores: no text, no icon. It answers NFR_UNICODE / NFR_ANSI now from
+   win32k's WFANSIPROC (CSF_ANSIPROC, 2, in the class flags RegisterClassA
+   passes; SetWindowLong(GWL_WNDPROC)'s bAnsi).
+4. **A thread's TEB.** ntposix made a new thread's TEB as a copy of the
+   first's, ReservedForOle (+0xF80) included, so every thread shared ole32's
+   SOleTlsData. With the icons the main thread called oleaut32 for the first
+   time; its CoSetState released the tray thread's oleaut32 state object,
+   whose release cleared the *main* thread's oleaut32 TLS, and
+   SafeArrayCreate read a NULL IMalloc (signal 11 at 0 in sub_2112B080). A new
+   TEB now starts with no ReservedForOle and no TlsExpansionSlots.
+
+Also answered: NtUserSendNotifyMessage (one thread: a send; HWND_BROADCAST to
+the guest's own top-level windows, as PostMessage/SendMessage broadcasts now
+are), SPI_SETWORKAREA (the monitor's rcWork; SPIF_SENDCHANGE broadcasts
+WM_SETTINGCHANGE; the work area starts as the whole screen, as on a Windows
+with no shell), SPI 0x2B (minimized metrics) / 0x62 / 0x64 / 0x66 (mouse
+hover), CallNoParam 0x15 (MsgWaitForMultipleObjectsEx clears the wake mask:
+nothing kept), csr 1:1 (basesrv CreateThread), 1:12
+(SetProcessShutdownParam), 3:1029 (usersrv, a zeroed reply): success, silent.
+Menus: NtUserRemoveMenu/DeleteMenu, and the ITEM's lpstr/cch/dwItemData/hbmp
+in the desktop heap (user32 reads menu text client-side).
+
+**Start menu (not open yet).** `--sclick X,Y@T` is new: a click at a screen
+point, delivered to the window under it (a topmost tree first: the taskbar).
+`--sclick 25,588@20` presses Start: the tray builds the menu (RemoveMenu,
+DeleteMenu) and creates the band's ToolbarWindow32 "Menu", but the band
+sizes it 5x4 and the bar 4x6 (the small black strip above Start in
+`shots/linux-ex/start_24.png`). Next: why the menu toolbar's ideal size is
+empty (TB_GETIDEALSIZE / its buttons: are the Start menu items added? the
+static items come from shell32's menu resource through the ITEM text now
+synced).
+
+**Intermittent crash.** About one run in three: signal 11 at 0x1236 in libc
+(host eip F7xxx52F), g_cur_func sub_2030355E (user32), on the browseui
+thread (esp 0223xxxx), before 20 s. Not under NATIVE32_SYSCALLS (timing).
+A race between guest threads: look at what runs outside g_big.
+
+**The live-mode crash (handoff 2).** sub_203172D0 is the NtUserDrawIconEx
+stub (service 0x1161), so the fault is in w32kposix's draw_icon, not user32:
+0xE79E7020 is most likely a pixel buffer read past its end (an icon whose
+colour bitmap is smaller than its mask, or a clip larger than the DC's
+bitmap). Bound the reads in draw_icon to each bitmap's size.
+
+**Regression (Linux: this runtime against 0c83c6f's, the same lifted sets,
+`compare -metric AE`).**
+
+| app | shots | differing pixels |
+|---|---|---|
+| winmine | 4, 5, 8 (+client) | 0 |
+| calc | 5, 8 (+client) | 0 |
+| freecell | 8, 11 (+client) | 0 |
+| notepad ("Hello, Windows 2000") | 9, 11 whole window | 5 (the caption icon, build-dependent as before) |
+| sol | 8, 10 | 585 client / 586 window |
+| mspaint | 8 | 282 |
+| wordpad | 9 | 58 client / 59 window (side by side: no visible change) |
+
+Not explained yet, first thing next session: sol's 585 matches the old note's
+status-bar-frame count, so the likeliest causes are the new rule that a
+WM_PAINT never BeginPaint'ed also drops the frame flag, or the owed
+WM_SIZE/WM_MOVE now sent from DefWindowProc's WM_WINDOWPOSCHANGED (once, but
+earlier than show() used to). Check by reverting each one in turn.
+
+### Handoff (next)
+
+1. Explain or fix the sol/mspaint/wordpad diffs above.
+2. Start menu: the band's toolbar sizes to 5x4 (see above); then Run ->
+   winmine (build ntwinmine in the same scratch dir; root/sys is its set).
+3. draw_icon bounds (the live-mode crash), then the live Start click.
+4. The intermittent signal 11 at 0x1236 (thread race).
+5. Icon images: the 4 bpp DIB section bits.
+6. Windows host: ole32's DllMain twice (findings.md, "Bug (Windows host, for later)").
