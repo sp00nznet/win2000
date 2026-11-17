@@ -2295,3 +2295,61 @@ Gaps / next:
 - Mouse/Keyboard tab strips through rundll32 (in-proc ones draw theirs).
 - The interact baselines for mspaint/wordpad/sol (above).
 - Display's Apply path with a moved slider (keyboard into the trackbar).
+
+### interact goldens; Display's Apply refused end to end; Control Panel's nameless folders (handoff)
+
+pcrecomp w2k 76881a8. shots/exp (local): dap_37.png (Settings, slider moved to 640 by
+480, Apply enabled), dap_42.png (Windows 2000's "will now apply your new desktop settings"),
+dap_47.png ("The display control panel is unable to change the display settings"), cp12_27.png
+(Control Panel: Administrative Tools, Date/Time, Display, Fonts, Keyboard, Mouse, Printers).
+
+**interact's gate is the lifted builds' approved goldens.** mspaint/wordpad load Windows
+2000's own comctl32 (through shell32) and the stage 1 builds the host's; the lifted build is
+the faithful one. tools/interact.py prints two columns: `stage1` (informational) and `golden`
+(the gate, exit 1 on a difference or a missing golden). The goldens are local PNGs in
+shots/golden; tools/golden.json (committed) holds each one's RGB sha256 (sol without its status
+bar). A hash mismatch still passes as `0 (+-2)` when no channel differs from the golden PNG by
+more than 2 (the host's ClearType drifts by 1 between sessions: calc's "0." moved by 1 in both
+builds). **Re-approving**: run the apps, check each new lifted shot by eye (Read tool), then
+`py -3 tools/interact.py --approve [app ...]` and commit tools/golden.json.
+Recording them showed three apps whose settle caught a frame before their last paint (sol's
+last pile still face down, freecell without "Cards Left", packager without its Appearance pane):
+those hold 3 s instead of 1.5. Since: 20/20 golden in four runs (one with the calc drift); one run under load had wordpad
+hang before its window (no shot in 22 s) and winmine's posted menu key missed; both clean in
+two reruns of those apps. An intermittent wordpad startup hang is open.
+Known harness quirks in the goldens, the same on the host build: winmine's `custom 20x30`
+dialog still shows 16/16/40.
+
+**Display's Apply.** `rundll32 shell32.dll,Control_RunDLL desk.cpl,,3` (Settings); VK_LEFT
+posted to the trackbar (hiddenrun `--childpost ~msctls_trackbar32:...`: a point lands on the
+"Screen area" group box, first in z-order), WM_COMMAND 0x3021 (Apply) to the sheet, Enter to
+the confirmation box. Its OK faulted in MB_DlgProc: the MSGBOXDATA is in GWL_USERDATA, and
+NtUserSetWindowLong(-21) was unanswered while the guest's GetWindowLong reads WND+0x94. Now
+stored there (pcrecomp w32kuser.c). Then `[user] ChangeDisplaySettings (flags 10000051): the
+host's display mode, refused` and desk.cpl's own failure box. hostsettings.py before/after:
+unchanged. In work/scen.sh as s_dap (strict check: PASS).
+
+**The nameless folders** were shell32's own required Control Panel regitems, CLSIDs in its
+code: Scheduled Tasks {D6277990-...} (mstask.dll) and Network and Dial-up Connections
+{7007ACC7-...} (netshell.dll); regtrace showed their CLSID\...\ShellFolder reads. Neither server
+is lifted (both reach host services), so no name. reginst.py gives both ShellFolder Attributes
+SFGAO_NONENUMERATED (0x00100000) in the box, Windows 2000's own way to keep a regitem out of
+a listing.
+
+**intl.cpl not lifted** (Keyboard's Input Locales stays out). It needs setupapi (INF parsing
+and file queues), syssetup (SetupChangeLocaleEx) and userenv. syssetup imports 123 setupapi
+functions, most of them device and class installation (SetupDi*, CMP_WaitNoPendingInstallEvents),
+plus powrprof, sfc, sfcfiles and netapi32; setupapi imports rpcrt4 for the PnP manager. That
+chain is device, power and service code; not lifted, by the rule that none of it may reach the
+host's devices or services. A stand-in (like devmgr's) for syssetup and userenv, with
+Windows 2000's setupapi INF code alone, would be the way if Input Locales is wanted.
+
+Regression after the runtime change: work/scen.sh 12/12 PASS (strict check), hostsettings
+unchanged across it, filebox_check 13/13, interact 20/20 golden, registry
+(work/regsnap/after11 -> after12): only the host's UserAssist counters.
+
+Gaps / next:
+- Date/Time (cp11_29.png): today's date not drawn in the month calendar; the clock's hands
+  leave cyan trails.
+- Mouse/Keyboard tab strips through rundll32 (in-proc ones draw theirs).
+- Scheduled Tasks / Network and Dial-up: hidden, not lifted.

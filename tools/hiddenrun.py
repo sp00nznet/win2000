@@ -177,6 +177,16 @@ def send_input(a, p, desk, kind, what):
     elif main_w and kind == 'childpost':
         xy, m = what.split(':')
         if xy[0].isdigit(): h, _ = deepest(main_w, *map(int, xy.split(',')))
+        elif xy[0] == '~':   # ~CLASS: the first descendant of that class (a control under a group box)
+            found = []
+            P = ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
+            def f(c, _):
+                b = ctypes.create_unicode_buffer(64); u32.GetClassNameW(c, b, 64)
+                if b.value.lower() == xy[1:].lower(): found.append(c); return False
+                return True
+            u32.EnumChildWindows(main_w, P(f), 0)
+            if not found: print('childpost: no', xy); return
+            h = found[0]
         else: u32.FindWindowExW.restype = W.HWND; h = u32.FindWindowExW(main_w, None, xy, None)   # a class: a screen window
         u32.PostMessageW(h, *(int(v, 0) for v in m.split(',')))
     elif main_w and kind == 'drag':

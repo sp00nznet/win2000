@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- interact gates on approved lifted-build goldens: shots/golden (local) with their RGB hashes
+  in tools/golden.json (committed); `py -3 tools/interact.py --approve [app ...]` re-approves
+  after the new shots are checked by eye. The stage 1 comparison stays as an informational
+  column (mspaint and wordpad load Windows 2000's own comctl32 and differ from it by design).
+- Display's Apply: the Screen area slider moved (640 by 480), Apply and Windows 2000's own
+  "will now apply" box answered; ChangeDisplaySettings is refused and desk.cpl says it is
+  unable to change the display settings; the host's mode unchanged (hostsettings.py).
+  GWL_USERDATA lives in the guest's WND (message boxes faulted at OK without it).
+  hiddenrun `--childpost ~CLASS:...` posts to the first descendant of a class.
+- Control Panel's two nameless folders gone: shell32's own Scheduled Tasks and Network and
+  Dial-up items (mstask, netshell not lifted) are SFGAO_NONENUMERATED in the box.
 - No host DLL but advapi32 in any guest process: run_explorer.sh's host-module check covers
   every process of the run (launched children from their first line). Windows 2000's
   imagehlp (rundll32), and for the accessories (tools/lift_accessories.sh, on the shell's

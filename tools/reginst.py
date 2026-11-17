@@ -107,6 +107,14 @@ def main():
     cv = hklm + r'\Microsoft\Windows\CurrentVersion'
     # Control Panel's namespace too (the host's two Win11 items were nameless folders)
     winreg.CreateKey(winreg.HKEY_CURRENT_USER, cv + r'\Explorer\ControlPanel\NameSpace').Close()
+    # shell32 lists two Control Panel items of its own (required regitems, CLSIDs in its code):
+    # Scheduled Tasks (mstask.dll) and Network and Dial-up Connections (netshell.dll). Neither
+    # server is lifted (both reach host services), so their CLSIDs have no name: two nameless
+    # folders. Windows 2000's own way to keep a regitem out of a listing: ShellFolder Attributes
+    # with SFGAO_NONENUMERATED. ponytail: lift mstask/netshell and drop these to show them.
+    for clsid in ('{D6277990-4C6A-11CF-8D87-00AA0060F5BF}', '{7007ACC7-3202-11D1-AAD2-00805FC1270E}'):
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, root + r'\CLSID\%s\ShellFolder' % clsid) as k:
+            winreg.SetValueEx(k, 'Attributes', 0, winreg.REG_DWORD, 0x00100000)
     # The Internet Explorer desktop item's icon (IE's setup writes it on Windows 2000; no INF has it):
     # iexplore.exe as a file in the box's Program Files (run_explorer.sh), never run
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, root + r'\CLSID\{871C5380-42A0-1069-A2EA-08002B30309D}\DefaultIcon') as k:

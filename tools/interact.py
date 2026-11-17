@@ -97,6 +97,8 @@ for app, name, t, run in ((app, n, t, r) for app, r, steps in RUNS for n, t, _ i
         gs = 'NO GOLDEN'; fails += 1
     elif man[key] == h:
         gs = '0'
+    elif os.path.exists(g) and max(hi for _, hi in ImageChops.difference(crop(Image.open(g), app), B).getextrema()) <= 2:
+        gs = '0 (+-2)'   # ponytail: host ClearType drifts by 1 between sessions (stage 1 too); a real change is far more
     else:
         gs = 'FAIL ' + (ndiff(crop(Image.open(g), app), B) if os.path.exists(g) else 'hash') + ' px'; fails += 1
     print('%-8s %-13s %dx%d  stage1 %-8s golden %s' % (app, name, B.size[0], B.size[1], s1, gs))

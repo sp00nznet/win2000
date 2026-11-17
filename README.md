@@ -19,6 +19,11 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 | 4L | Stage 4 on Linux: calc, notepad, sol, freecell (cards.dll) on the same software win32k, and a live X11 window with real mouse and keyboard (`--live`; [docs/linux.md](docs/linux.md)) | sol 1 of 224,640 pixels from the Windows build; calc differs only in ClearType glyphs; sol dragged and notepad typed into live under Xvfb |
 | 3 | user32/gdi32 lifted, win32k calls shimmed | winmine, notepad and calc on their own lifted user32 + gdi32 (`build/nt<app>.exe`), pixel-identical to stage 1 in every `tools/interact.py` state: winmine started, clicked, resized, its Custom dialog driven and its menu open; notepad started and typed into; calc started and 12+3= pressed. Sent messages arrive through ntdll's KiUserCallbackDispatcher and user32's own `__fn*` routines. sol and freecell on it too (table identical; no cards on either build while the session screen is 480 wide). All five accessories pixel-identical on lifted gdi32; packager too. mspaint and wordpad (MFC, RichEdit) pixel-identical too |
 
+Regression: `py -3 tools/interact.py` drives the accessories and fails when a lifted build's
+shot differs from its approved golden (shots/golden, hashes in tools/golden.json). After a
+deliberate change, check the new shots by eye, then `py -3 tools/interact.py --approve [app ...]`
+and commit tools/golden.json.
+
 ## Building
 
 Prerequisites: Visual Studio 2022 (C++ x86 tools), CMake, Ninja, Python 3
