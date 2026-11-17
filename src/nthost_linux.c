@@ -240,15 +240,23 @@ static void host_createprocess(int ansi) {
     }
     while (*a == ' ') a++;
     fprintf(stderr, "[launch] %s -> %s %s\n", name, run, a);
+    /* live: the child draws into our X window (w32kposix's shared surface, in the scratch
+     * directory: the root's parent), not into one of its own */
+    static int seq;
+    char shm[PATH_MAX + 64];
+    snprintf(shm, sizeof shm, "%s/../w2k-ipc-%d-%d.fb", g_root, (int)getpid(), seq++);
+    int kc = g_live ? w2kx_child(shm) : -1;
     pid_t pid = fork();
     if (pid == 0) {
         prctl(PR_SET_PDEATHSIG, SIGTERM);
+        if (kc >= 0) setenv("W2K_SHM", shm, 1); else unsetenv("W2K_SHM");
         if (chdir(g_root)) _exit(127);
         char* av[] = { run, "--root", g_root, g_live ? "--live" : "--mute", *a ? "--" : NULL, (char*)a, NULL };
         if (!*a) av[4] = NULL;
         execv(run, av);
         _exit(127);
     }
+    if (kc >= 0 && pid > 0) w2kx_child_pid(kc, (int)pid);
     if (pi) MEM32(pi) = 0, MEM32(pi + 4) = 0, MEM32(pi + 8) = (uint32_t)pid, MEM32(pi + 12) = (uint32_t)pid;
     g_eax = pid > 0, g_esp += 4 + 40;
 }

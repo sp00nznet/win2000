@@ -22,10 +22,10 @@ if [ -d "src/gen/$APP/explorer" ]; then
   # COM+ catalog" marker (ole32 checks System32\~CLBCATQ.DLL; it is never loaded): ole32 takes the
   # registry, as on Windows (docs/linux.md). winmine.exe is a name for Run's search; the launch path
   # starts ./winmine-linux, never a file.
-  ssh "$HOST" ": > $DIR/sys-ex/~clbcatq.dll; : > $DIR/sys-ex/winmine.exe"
+  ssh "$HOST" ": > $DIR/sys-ex/~clbcatq.dll; for e in winmine notepad calc sol freecell mspaint wordpad; do : > $DIR/sys-ex/$e.exe; done"
   tar cf - -C work/lx explorer.box | ssh "$HOST" "tar xf - -C $DIR"
   tar cf - -C work/profile/C "Documents and Settings" | ssh "$HOST" "mkdir -p $DIR/root/TEMP && tar xf - -C $DIR/root"
-  TT=$(cd work/fonts && ls lucon.ttf tahoma.ttf 2>/dev/null || true)
+  TT=$(cd work/fonts && ls lucon.ttf tahoma.ttf marlett.ttf 2>/dev/null || true)
   tar cf - -C work/names win32k_2000sp4.txt -C ../fonts sserife.fon vgasys.fon $TT | ssh "$HOST" "tar xf - -C $DIR/sys-ex"
   tar cf - -C work/sys c_1252.nls c_437.nls l_intl.nls unicode.nls locale.nls ctype.nls sortkey.nls sorttbls.nls sortkey_00000409.nls | ssh "$HOST" "tar xf - -C $DIR/sys-ex"
 elif [ "$APP" = cmd ]; then
@@ -39,7 +39,7 @@ else
   [ -d "src/gen/$APP/comctl32" ] && tar cf - -C work/lx/reb comctl32.dll | ssh "$HOST" "tar xf - -C $DIR/root/sys"
   tar cf - -C work/rebased-gui "$EXE.exe" $CARDS ntdll.dll kernel32.dll msvcrt.dll user32.dll gdi32.dll | ssh "$HOST" "tar xf - -C $DIR/root/sys"
   # the TrueType faces w32kposix rasterizes (expand.exe from the CD's LUCON.TT_, TAHOMA.TT_), when there
-  TT=$(cd work/fonts && ls lucon.ttf tahoma.ttf 2>/dev/null || true)
+  TT=$(cd work/fonts && ls lucon.ttf tahoma.ttf marlett.ttf 2>/dev/null || true)
   tar cf - -C work/names win32k_2000sp4.txt -C ../fonts sserife.fon vgasys.fon $TT | ssh "$HOST" "tar xf - -C $DIR/root/sys"
 fi
 tar cf - -C work/sys c_1252.nls c_437.nls l_intl.nls unicode.nls locale.nls ctype.nls sortkey.nls sorttbls.nls sortkey_00000409.nls | ssh "$HOST" "tar xf - -C $DIR/root/sys"

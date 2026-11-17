@@ -5,7 +5,7 @@ Linux. No QEMU, no VirtualBox, no Wine. The lifted ntdll, kernel32 and msvcrt
 are the same C files the Windows host builds; only the layer under
 `int 2Eh` changes.
 
-## Status: done (desktop, taskbar, Start menu, Run -> winmine)
+## Status: done (desktop, taskbar, Start menu by mouse, one screen with launched programs)
 
 On netlab's Debian 13 box, Windows 2000's own explorer.exe (with its shell32, browseui,
 comctl32, ole32 ... all lifted) runs as an i386 Linux process in a live X11 window, with
@@ -14,25 +14,28 @@ no Wine and no emulator. Shots: `shots/linux-ex/` (not in git).
 **What works**
 - The desktop: Windows 2000's wallpaper colour and its colour icons (My Documents, My Computer,
   My Network Places, Recycle Bin, Internet Explorer).
-- The taskbar: Start button, the clock in the tray.
-- The Start menu: the "Windows 2000 Professional" banner and its items (Programs, Favorites,
-  Documents, Settings, Search, Help, Run..., Shut Down...) with their icons
-  (`startmenu_items_24.png`, live: `live_start.png`).
-- Start -> R opens shell32's Run dialog; typing `winmine` and Return starts `./winmine-linux`
-  (the lifted Minesweeper's runner) through the launch path (`live_run_typed.png`,
-  `live_run_winmine.png`). Only lifted runners start: anything else gets `[guard]`.
+- The taskbar: Start button, the clock in the tray, and a button per launched program's window
+  (`s6_winmine_onescreen.png`, `s6_notepad_onescreen.png`).
+- The Start menu by mouse and keyboard: its items, submenus (Programs -> Accessories -> Games,
+  Calculator, Notepad, Paint, WordPad) with Marlett's arrows, rasterized from Windows 2000's own
+  marlett.ttf (`s6_programs.png`, `s6_accessories_marlett.png`). Clicking Run... opens the Run
+  dialog and the menu closes (`s6_click_run.png`).
+- Run -> `winmine` / `notepad` starts the lifted runner (`./winmine-linux`, `./notepad-linux`) as a
+  child that draws *inside the shell's X window*: one screen, the child's window over the desktop,
+  the mouse and keyboard forwarded to it, its button on the taskbar. Only lifted runners start:
+  anything else gets `[guard]`.
 - The accessories on their own (winmine, calc, notepad, sol, freecell, mspaint, wordpad):
-  scripted (PNG shots) and live (mouse and keyboard under X11).
+  scripted (PNG shots) and live.
 
 **Known gaps**
-- Clicking a Start menu item with the mouse does nothing yet; the keyboard (the item's letter)
-  works. browseui's menu filter gets the click on BaseBar (the capture window) and does not pass
-  it on (it probably asks for the point's window client-side).
-- Submenus (Programs -> Accessories -> Notepad) are not reached, so Notepad from the menu is not
-  shown; `./notepad-linux` itself runs.
-- The submenu arrows draw as "8": they are Marlett glyphs, and Marlett is not among the fonts.
-- A launched program opens its own X window over the shell's (each runner draws its own
-  desktop); the Start menu stays open behind the Run dialog.
+- Start -> Programs -> Accessories -> Notepad by mouse shows "Unable to run this command": the
+  profile's Notepad.lnk holds only an ID list (no path), and shell32 fails before CreateProcess
+  (no file is even opened). Notepad from the Run dialog works.
+- Typing into a child through xdotool loses spaces and shifted capitals (keys arrive as
+  `Hello,windows2000`).
+- Children's windows are always above the shell's own (except its topmost: taskbar, Start menu);
+  no taskbar icon on their buttons; whole-frame copies every 15 ms.
+- The message box shell32 shows is sized 6x25 (MessageBox sizing).
 - One rectangle of clipping per DC, no real regions; no sound; no real console.
 
 ## What is Windows-specific today
@@ -1125,3 +1128,77 @@ calls for 0x201.
 3. A launched runner shares the shell's X window instead of opening its own desktop.
 4. DIB sections: write-back happens on GdiFlush only (ponytail); memcmp per use.
 5. Windows host: ole32's DllMain twice (findings.md).
+
+### Stage 7, sixth session: the mouse in the Start menu, Marlett, one screen
+
+Scratch: `/home/netlab/w2k-s`, deleted at the end. pcrecomp w2k-linux ae39e4c.
+
+**Mouse clicks on Start menu items.** Two causes, found from the trace and browseui's own code
+(the WH_GETMESSAGE filter, sub_20D16197 -> its mouse handler sub_20D18881):
+- The click activated the BaseBar (x_mouse activated the clicked window's top-level window even
+  while a window had the capture). The tray got WM_ACTIVATE(inactive) and the menu closed before
+  the click reached the hook. Now a click activates only when nothing has the capture, and asks
+  WM_MOUSEACTIVATE first (DefWindowProc asks the parent, as on Windows).
+- The filter starts with `GetCapture() == its BaseBar`. user32's GetCapture is client-side: it
+  returns 0 unless SERVERINFO's capture count (gpsi +0x864) is set, and GetCursorPos copies
+  gpsi->ptCursor (+0x7D4). Neither was kept, so the filter saw no capture and only took the
+  capture back. Both are kept now (`set_capture`, `set_cursor`). Then the filter finds the band
+  under the point (GetWindowRect + PtInRect over its menu stack) and the item runs.
+- WindowFromPoint answers the deepest visible child (it took the highest slot that held the
+  point, which is a parent when a child has an older slot); ChildWindowFromPointEx and
+  SetMenuDefaultItem are answered.
+
+**The Start menu stayed drawn after Run opened.** Hiding, moving or destroying a window never
+repainted what it had covered. `expose()` marks the windows under the old rectangle dirty.
+
+**Marlett.** `expand MARLETT.TT_ work\fonts\marlett.ttf` (Windows' own expand.exe on the CD's
+file); the rasterizer takes a (3,0) symbol cmap (char c at U+F000+c). The arrows draw.
+
+**One screen.** The shell (the process with the X window) makes each launched child a shared
+surface before the fork: a file `w2k-ipc-PID-N.fb` in the scratch directory (the root's parent),
+passed in `W2K_SHM`. The child takes the shell's screen size, draws as always, and copies its
+frame there every 15 ms with the list of its top-level windows; it opens no X window. The shell
+puts those rectangles over its frame (under its own topmost windows) and writes the mouse over
+them, and the keys while one is active, into a ring in the same file. For each child window the
+shell makes a stand-in window (empty rect, DefWindowProcW, never drawn) and posts the
+taskbar's SHELLHOOK message (RegisterWindowMessage now keeps names) with HSHELL_WINDOWCREATED /
+DESTROYED / REDRAW, so the taskband adds a button; activating the button activates the child's
+window. The file is unlinked when the child exits. No sockets.
+
+**The tray hung after Run.** The tray waits up to 10 s for "MSShellRunDlgReady" with
+MsgWaitForMultipleObjects(QS_SENDMESSAGE); our input event was always signalled, so the wait
+never timed out and the tray thread (and its taskbar) stopped. A wait for sent messages only now
+gets an event that is never signalled (sends are direct calls here). shell32 sets the event only
+when the owner has a "WaitingThreadID" property; why it is missing is not chased.
+
+**WordPad's 2 px (task from session 5): faithful.** Measured from the etched line at the top of
+the control bar to the top of the first toolbar icon: Win11 lifted golden
+(`shots/golden/wp_ntwordpad_9.png`) 9 px, 0c83c6f/7f8d480 runtime 11 px, today 9 px. The band
+heights match (58 rows) in all three. comctl32 seeing MFC's final toolbar style is right.
+
+**Regression (18d5a88's shots in `shots/linux-reg/reg5/*_new_*` against ae39e4c, the same lifted
+sets and scripts; `shots/linux-reg/reg6/`):**
+
+| app | shots | whole window and client |
+|---|---|---|
+| winmine | 4, 5, 8 | 0 |
+| calc | 5, 8 | 0 |
+| freecell | 8, 11 | 0 |
+| notepad | 9, 11 | 0 |
+| sol | 8, 10 | 0 |
+| mspaint | 8 | 0 |
+| wordpad | 9 | 0 |
+
+### Handoff (next)
+
+1. Start -> Programs -> Accessories -> Notepad by mouse: "Unable to run this command". The
+   profile's .lnk files are ID-list only; trace shell32's invoke (SHGetPathFromIDList on the
+   link's pidl, then ShellExecuteEx) to the failing call. Fixing profile.py to write a
+   LinkInfo path is the other way.
+2. Keys forwarded to a child lose spaces and shift (xdotool type): check key_in's ch/state
+   through the ring against the non-composited live run.
+3. One screen: z-order between the shell's windows and the children's; taskbar icons
+   (WM_GETICON to the stand-in -> the child's icon); minimize from the taskbar button.
+4. MessageBox comes up 6x25 (its size computation).
+5. Why shell32 finds no "WaitingThreadID" property on the Run dialog's owner.
+6. DIB sections write back on GdiFlush only; Windows host: ole32's DllMain twice.
