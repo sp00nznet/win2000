@@ -19,6 +19,8 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 | ![Start menu on Linux](docs/img/linux_startmenu.png) | ![Notepad on Linux](docs/img/linux_notepad.png) |
 | The same explorer on Linux (X11, no Wine) | Notepad launched from the Linux Start menu |
 
+How it works: [docs/architecture.md](docs/architecture.md).
+
 ## Status
 
 **Windows 2000 on Linux: done.** Its own explorer, statically lifted, runs on Debian as an
