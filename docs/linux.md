@@ -1331,3 +1331,18 @@ is up, and the caret overlay did not check visibility: it now draws only on a vi
 **B4 (the box).** pid 678866 was this project's: `bash -c while pgrep -u netlab -f "linux_build.sh
 ntexplorer_lx" ...; tail /tmp/w2k-ex/build_ex.log` (an earlier session's build watcher). It never
 ended because its own command line matched the pgrep pattern. Stopped (SIGTERM); nothing else.
+
+**Regression (fd9436e's shots in `shots/linux-reg/reg7/` against a820093, the same lifted sets and
+scripts, rebuilt one set at a time with J=3; `shots/linux-reg/reg8/`):**
+
+| app | shots | whole window and client |
+|---|---|---|
+| winmine | 4, 5, 8 | 0 |
+| calc | 5, 8 | 0 |
+| freecell | 8, 11 | 0 |
+| notepad | 9, 11 | 0 |
+| sol | 8, 10 | 0 |
+| mspaint | 8 | 0 |
+| wordpad | 9 | 0 |
+
+The scratch directory was deleted at the end; no Xvfb left running.
