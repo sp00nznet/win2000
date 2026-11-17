@@ -8,6 +8,17 @@ Windows host, with no emulator.
 their own copy of Windows 2000; everything that comes from it (the extracted
 files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 
+![Windows 2000 running as a recompiled program, on Windows 11 and on Linux](docs/img/hero.gif)
+
+| | |
+|---|---|
+| ![Start menu](docs/img/startmenu.png) | ![Start → Run → Minesweeper](docs/img/run_winmine.png) |
+| Explorer's Start menu (Win11 host) | Start → Run → Minesweeper |
+| ![Folder window on C:](docs/img/folder_c.png) | ![Control Panel](docs/img/control_panel.png) |
+| My Computer → C: (the sandbox root) | Control Panel |
+| ![Start menu on Linux](docs/img/linux_startmenu.png) | ![Notepad on Linux](docs/img/linux_notepad.png) |
+| The same explorer on Linux (X11, no Wine) | Notepad launched from the Linux Start menu |
+
 ## Status
 
 **Windows 2000 on Linux: done.** Its own explorer, statically lifted, runs on Debian as an
