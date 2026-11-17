@@ -12,9 +12,10 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 
 **Windows 2000 on Linux: done.** Its own explorer, statically lifted, runs on Debian as an
 i386 Linux process in a live X11 window (no Wine, no emulator): the desktop with its icons, the
-taskbar, the Start menu with its items, and Start -> Run -> `winmine` starting the lifted
-Minesweeper. Known gaps: mouse clicks on Start menu items (the keyboard works), submenus,
-Marlett arrows, a launched program draws its own desktop. Details: [docs/linux.md](docs/linux.md).
+taskbar, the Start menu by mouse with its submenus, and Start -> Programs -> Accessories ->
+Notepad, Calculator or Paint (or Run) starting the lifted program inside the same screen with its
+taskbar button. Known gaps: minimize from the taskbar button, taskbar button icons, the Run
+dialog's ready event. Details: [docs/linux.md](docs/linux.md).
 
 | Stage | What | State |
 |---|---|---|

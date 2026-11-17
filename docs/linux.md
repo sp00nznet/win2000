@@ -5,38 +5,40 @@ Linux. No QEMU, no VirtualBox, no Wine. The lifted ntdll, kernel32 and msvcrt
 are the same C files the Windows host builds; only the layer under
 `int 2Eh` changes.
 
-## Status: done (desktop, taskbar, Start menu by mouse, one screen with launched programs)
+## Status: done (desktop, taskbar, Start menu by mouse, programs from the menu, one screen)
 
 On netlab's Debian 13 box, Windows 2000's own explorer.exe (with its shell32, browseui,
 comctl32, ole32 ... all lifted) runs as an i386 Linux process in a live X11 window, with
-no Wine and no emulator. Shots: `shots/linux-ex/` (not in git).
+no Wine and no emulator. Shots: `shots/linux-ex/`, `shots/linux-s7/` (not in git).
 
 **What works**
 - The desktop: Windows 2000's wallpaper colour and its colour icons (My Documents, My Computer,
   My Network Places, Recycle Bin, Internet Explorer).
-- The taskbar: Start button, the clock in the tray, and a button per launched program's window
-  (`s6_winmine_onescreen.png`, `s6_notepad_onescreen.png`).
+- The taskbar: Start button, the clock in the tray, and a button per launched program's window.
 - The Start menu by mouse and keyboard: its items, submenus (Programs -> Accessories -> Games,
-  Calculator, Notepad, Paint, WordPad) with Marlett's arrows, rasterized from Windows 2000's own
-  marlett.ttf (`s6_programs.png`, `s6_accessories_marlett.png`). Clicking Run... opens the Run
-  dialog and the menu closes (`s6_click_run.png`).
-- Run -> `winmine` / `notepad` starts the lifted runner (`./winmine-linux`, `./notepad-linux`) as a
-  child that draws *inside the shell's X window*: one screen, the child's window over the desktop,
-  the mouse and keyboard forwarded to it, its button on the taskbar. Only lifted runners start:
-  anything else gets `[guard]`.
+  Calculator, Notepad, Paint, WordPad) with Marlett's arrows and the accessories' own icons
+  (`s7_menu_icons.png`). Clicking Run... opens the Run dialog and the menu closes.
+- Start -> Programs -> Accessories -> Notepad, Calculator, Paint by mouse start the lifted runners
+  (`./notepad-linux` ...), as Run -> `notepad` does. They draw *inside the shell's X window*: one
+  screen, each with its taskbar button (`s7_notepad_typed.png`, `s7_calc.png`, `s7_paint.png`).
+  Only lifted runners start: anything else gets `[guard]`.
+- The keyboard into a child at xdotool's full speed, spaces and Shift included ("Hello, Windows
+  2000"); the Run dialog needs no `--delay`.
+- Stacking: a new program comes up on top with the keyboard; a click raises a child over another
+  or over the shell's own windows, and the Run dialog opens above the children (`s7_z_*.png`).
+- MessageBox at its proper size, with its buttons' names (`s7_msgbox.png`).
 - The accessories on their own (winmine, calc, notepad, sol, freecell, mspaint, wordpad):
   scripted (PNG shots) and live.
 
 **Known gaps**
-- Start -> Programs -> Accessories -> Notepad by mouse shows "Unable to run this command": the
-  profile's Notepad.lnk holds only an ID list (no path), and shell32 fails before CreateProcess
-  (no file is even opened). Notepad from the Run dialog works.
-- Typing into a child through xdotool loses spaces and shifted capitals (keys arrive as
-  `Hello,windows2000`).
-- Children's windows are always above the shell's own (except its topmost: taskbar, Start menu);
-  no taskbar icon on their buttons; whole-frame copies every 15 ms.
-- The message box shell32 shows is sized 6x25 (MessageBox sizing).
-- One rectangle of clipping per DC, no real regions; no sound; no real console.
+- Minimize from the taskbar button: the runtime minimizes and restores (SW_MINIMIZE, SC_MINIMIZE,
+  forwarded to a child), but a click on the active program's button does nothing yet.
+- No icons on the taskbar buttons.
+- The Run dialog's ready event: explorer sets "WaitingThreadID" on the owner and shell32 finds the
+  atom, but it opens no event; the tray's wait times out after 10 s (it no longer hangs).
+- The message box cuts a third line of text; a caret is left behind where the Run dialog's edit was.
+- One rectangle of clipping per DC, no real regions; whole-frame copies every 15 ms; no sound; no
+  real console.
 
 ## What is Windows-specific today
 
@@ -1202,3 +1204,85 @@ sets and scripts; `shots/linux-reg/reg6/`):**
 4. MessageBox comes up 6x25 (its size computation).
 5. Why shell32 finds no "WaitingThreadID" property on the Run dialog's owner.
 6. DIB sections write back on GdiFlush only; Windows host: ole32's DllMain twice.
+
+### Stage 7, seventh session: programs from the Start menu, keys, the message box, stacking
+
+Scratch: `/home/netlab/w2k-s` (disk-backed), deleted at the end. pcrecomp w2k-linux fd9436e.
+Shots (not in git): `shots/linux-s7/` (`s7_*.png` are the ones named above).
+
+**Start -> Programs -> Accessories -> Notepad: "Unable to run this command"** (`s7_before_unable_to_run.png`).
+Found with the indirect-call ring (`g_icall_trace`) printed at every syscall after the .lnk was
+read, named from the export tables, and a host backtrace at the message box's CreateWindowEx. The
+text is explorer's own (string 527, `sub_0100E91C`: SHInvokeDefaultCommand failed and the item has
+no path). Inside it, shlwapi's invoke-default helper (#363) asks `GetMenuDefaultItem` for the default
+verb, gets -1 and destroys the menu: user32 answers it client-side from the items' MFS_DEFAULT, and
+`NtUserSetMenuDefaultItem` was a no-op returning 1. Now it sets MFS_DEFAULT on that item of that menu
+(clears the others) and syncs the menu to the desktop heap. Four more things stood behind it:
+- The execute thread's exit faulted in rpcrt4's DllMain(THREAD_DETACH): a new thread's TEB is a copy
+  of the first thread's, ReservedForNtRpc (+0xF1C) included, so the exiting thread freed the first
+  thread's RPC object. Cleared per thread (with WinSockData), as ReservedForOle already was.
+- shell32's link resolver then said "Problem with Shortcut ... changed or moved" with the nearest
+  match at the very same path (`s7_problem_with_shortcut.png`). Two causes: FindFirstFile on
+  `C:\WINNT` found nothing (`C:\WINNT\system32` is a mount, no WINNT directory under the root:
+  nthost_linux.c makes the mount point's directories), and NtQueryInformationFile had no
+  FileAllInformation (kernel32's GetFileInformationByHandle), so the target had no size or date.
+  FileAllInformation and FileAttributeTagInformation are answered.
+- The profile's .lnk files held a hand-built ID list. profile.py now writes them as Windows 2000's
+  setup does: the target as an expandable string (`%SystemRoot%\system32\notepad.exe`, an EXP_SZ
+  block) and the working directory `%HOMEDRIVE%%HOMEPATH%`; shell32 makes the ID list itself.
+- `sys-ex` holds Windows 2000's own accessory files (data: the resolver and the menu's icons read
+  them; the launch path still starts only `./NAME-linux`).
+
+**Keys to children** ("Hello,windows2000"). TranslateMessage took the character from a table per
+virtual key, set at key-down: a burst (W then w) overwrote it before the first WM_KEYDOWN was
+translated. Now a FIFO of (key, character) per keystroke. Its WM_CHAR also went to the end of the one
+queue, behind keys still waiting (a quick "notepad" + Return ran IDOK on "no"): NT takes posted
+messages before the input queue, so WM_CHAR goes ahead of queued input. X MappingNotify refreshes
+Xlib's keymap. (Lucida Console's capital W at 13 px looks like a w: the pixels span the capital
+height, as H's do.)
+
+**MessageBox at 6x25.** SoftModalMessageBox reads SERVERINFO client-side: cxMsgFontChar/
+cyMsgFontChar (+0x808/+0x80C), the caption and message fonts (+0x854/+0x858), wMaxBtnSize (+0x1D8)
+and the buttons' names, MBStrings (+0x1DC, 0x28 each), none of which were filled. The names are
+win32k.sys's message-table strings 0xB7..0xC1 ("OK", "Cancel", "&Abort" ...), read from the CD's
+win32k.sys with pefile (data only).
+
+**One screen.** The children and the shell's own windows stack by z stamps: a child's on a click or
+when it comes up, the shell's (its non-topmost, non-desktop windows as one layer) when one of them
+is activated or clicked. The new or clicked child takes the foreground: its stand-in is the active
+window and the taskbar hears HSHELL_WINDOWACTIVATED (win32k sends it on every foreground change;
+`activate()` now does too). Telling the old active window is posted, not sent: a send from the
+shell's idle to the closing Run dialog's thread hung. Minimize: WS_MINIMIZE with the window parked
+at -32000 (win32k's way), restore on SW_RESTORE or a show, SC_MINIMIZE/SC_RESTORE, ShowWindowAsync;
+on a stand-in it is forwarded to the child. The taskband's button click does not reach it yet.
+
+**Atoms** are reference-counted (GlobalDeleteAtom freed a name still in use elsewhere).
+
+**The Run dialog's ready event (not fixed).** The trace shows explorer's run thread set the
+property (NtAddAtom "WaitingThreadID", NtUserSetProp on the owner 0x10097) and shell32's
+RunFileDlg find the atom (NtFindAtom), yet no NtOpenEvent follows, so its GetPropW returned 0.
+user32's FindProp (0x2030630D) and our property list agree; the likely place is ValidateHwnd on the
+shlwapi pool thread that runs the dialog.
+
+**Regression (ae39e4c's shots in `shots/linux-reg/reg6/*_new_*` against fd9436e, the same lifted
+sets and scripts; `shots/linux-reg/reg7/`):**
+
+| app | shots | whole window and client |
+|---|---|---|
+| winmine | 4, 5, 8 | 0 |
+| calc | 5, 8 | 0 |
+| freecell | 8, 11 | 0 |
+| notepad | 9, 11 | 0 |
+| sol | 8, 10 | 0 |
+| mspaint | 8 | 0 |
+| wordpad | 9 | 0 |
+
+### Handoff (next)
+
+1. Minimize from the taskbar button: trace the taskband's button click (its WM_LBUTTONUP, then the
+   ShowWindow/SwitchToThisWindow it calls on the stand-in) with the shell hook messages in order.
+2. Taskbar button icons: the stand-in answers no WM_GETICON/GCL_HICONSM; the child could pass its
+   small icon's pixels in the shared header, the shell make an icon for the stand-in.
+3. The Run dialog's ready event: GetPropW on the dialog's thread (see above).
+4. MessageBox's third line; the caret left behind by the closed Run dialog.
+5. DIB sections write back on GdiFlush only; Windows host: ole32's DllMain twice.
