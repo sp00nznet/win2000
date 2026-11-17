@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Done
+- Windows 2000 is done on both hosts (README, docs/linux.md, docs/findings.md Status).
+- interact.py's goldens are per display (golden.json keyed `WxH@DPI`); "SKIP: no golden for this
+  display" fails only with `--strict`; stage 1 vs lifted is always checked; goldens approved for
+  1804x972@192.
+- Linux (pcrecomp w2k-linux a820093): minimize/restore by the taskbar button, taskbar button icons,
+  the Run dialog's ready event (named events), the message box's whole text, no caret on a hidden
+  window.
+
 ### Fixed
 - Host leak: the winhlp32 and wordpad boxes held the host's Shell Folders (C:\Users\<user>\OneDrive\...).
   pcrecomp regbox32 now answers Windows 2000's own keys (Shell Folders, User Shell Folders, the HKCU

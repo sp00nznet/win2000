@@ -14,8 +14,15 @@ files, catalogs and lifted C) goes into the gitignored `work/` and `src/gen/`.
 i386 Linux process in a live X11 window (no Wine, no emulator): the desktop with its icons, the
 taskbar, the Start menu by mouse with its submenus, and Start -> Programs -> Accessories ->
 Notepad, Calculator or Paint (or Run) starting the lifted program inside the same screen with its
-taskbar button. Known gaps: minimize from the taskbar button, taskbar button icons, the Run
-dialog's ready event. Details: [docs/linux.md](docs/linux.md).
+taskbar button and icon; a click on that button minimizes and restores it. Known gaps: a child's
+caption does not grey while the shell has the foreground, named kernel objects are per process,
+DIB sections write back on GdiFlush only, one clip rectangle per DC, no sound.
+Details: [docs/linux.md](docs/linux.md).
+
+**Windows 2000 on Windows 11: done.** Stages 1-3 and explorer run lifted on native32, boxed
+(registry box, drive sandbox). Known gaps: ole32's DllMain runs twice on the Windows host
+(docs/findings.md, last section), charmap lists the host's fonts, trackbar backgrounds in Mouse/
+Keyboard, Clipboard (NetDDE), console windows.
 
 | Stage | What | State |
 |---|---|---|
@@ -27,9 +34,12 @@ dialog's ready event. Details: [docs/linux.md](docs/linux.md).
 | 3 | user32/gdi32 lifted, win32k calls shimmed | winmine, notepad and calc on their own lifted user32 + gdi32 (`build/nt<app>.exe`), pixel-identical to stage 1 in every `tools/interact.py` state: winmine started, clicked, resized, its Custom dialog driven and its menu open; notepad started and typed into; calc started and 12+3= pressed. Sent messages arrive through ntdll's KiUserCallbackDispatcher and user32's own `__fn*` routines. sol and freecell on it too (table identical; no cards on either build while the session screen is 480 wide). All five accessories pixel-identical on lifted gdi32; packager too. mspaint and wordpad (MFC, RichEdit) pixel-identical too |
 
 Regression: `py -3 tools/interact.py` drives the accessories and fails when a lifted build's
-shot differs from its approved golden (shots/golden, hashes in tools/golden.json). After a
-deliberate change, check the new shots by eye, then `py -3 tools/interact.py --approve [app ...]`
-and commit tools/golden.json.
+shot differs from its stage 1 build's (always) or from its approved golden for this display
+(screen size and DPI, e.g. `1804x972@192`: shots/golden/<display>, hashes under that key in
+tools/golden.json). With no goldens for the display it prints "SKIP: no golden for this display"
+and fails only with `--strict`. After a deliberate change, or on a new display, check the new
+shots by eye and against stage 1, then `py -3 tools/interact.py --approve [app ...]` and commit
+tools/golden.json.
 
 ## Building
 

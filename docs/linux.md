@@ -5,16 +5,18 @@ Linux. No QEMU, no VirtualBox, no Wine. The lifted ntdll, kernel32 and msvcrt
 are the same C files the Windows host builds; only the layer under
 `int 2Eh` changes.
 
-## Status: done (desktop, taskbar, Start menu by mouse, programs from the menu, one screen)
+## Status: done (desktop, taskbar, Start menu by mouse, programs from the menu, one screen, minimize/restore from the taskbar)
 
 On netlab's Debian 13 box, Windows 2000's own explorer.exe (with its shell32, browseui,
 comctl32, ole32 ... all lifted) runs as an i386 Linux process in a live X11 window, with
-no Wine and no emulator. Shots: `shots/linux-ex/`, `shots/linux-s7/` (not in git).
+no Wine and no emulator. Shots: `shots/linux-ex/`, `shots/linux-s7/`, `shots/linux-s8/` (not in git).
 
 **What works**
 - The desktop: Windows 2000's wallpaper colour and its colour icons (My Documents, My Computer,
   My Network Places, Recycle Bin, Internet Explorer).
-- The taskbar: Start button, the clock in the tray, and a button per launched program's window.
+- The taskbar: Start button, the clock in the tray, and a button per launched program's window,
+  with the program's icon (`s8_taskbar_icon.png`). A click on the active program's button minimizes
+  it, a second click restores it (`s8_min_1..3.png`).
 - The Start menu by mouse and keyboard: its items, submenus (Programs -> Accessories -> Games,
   Calculator, Notepad, Paint, WordPad) with Marlett's arrows and the accessories' own icons
   (`s7_menu_icons.png`). Clicking Run... opens the Run dialog and the menu closes.
@@ -26,17 +28,16 @@ no Wine and no emulator. Shots: `shots/linux-ex/`, `shots/linux-s7/` (not in git
   2000"); the Run dialog needs no `--delay`.
 - Stacking: a new program comes up on top with the keyboard; a click raises a child over another
   or over the shell's own windows, and the Run dialog opens above the children (`s7_z_*.png`).
-- MessageBox at its proper size, with its buttons' names (`s7_msgbox.png`).
+- MessageBox at its proper size, with its buttons' names and its whole text (`s8_msgbox.png`).
+- The Run dialog tells the tray it is up (MSShellRunDlgReady): no 10 s wait.
 - The accessories on their own (winmine, calc, notepad, sol, freecell, mspaint, wordpad):
   scripted (PNG shots) and live.
 
 **Known gaps**
-- Minimize from the taskbar button: the runtime minimizes and restores (SW_MINIMIZE, SC_MINIMIZE,
-  forwarded to a child), but a click on the active program's button does nothing yet.
-- No icons on the taskbar buttons.
-- The Run dialog's ready event: explorer sets "WaitingThreadID" on the owner and shell32 finds the
-  atom, but it opens no event; the tray's wait times out after 10 s (it no longer hangs).
-- The message box cuts a third line of text; a caret is left behind where the Run dialog's edit was.
+- A child's caption does not grey while the shell has the foreground (no deactivate message
+  through the shared surface); the taskbar icon is the class icon only (no WM_SETICON).
+- Named kernel objects are per process (an event shared between the shell and a child is not).
+- DIB sections write back on GdiFlush only.
 - One rectangle of clipping per DC, no real regions; whole-frame copies every 15 ms; no sound; no
   real console.
 
@@ -1286,3 +1287,47 @@ sets and scripts; `shots/linux-reg/reg7/`):**
 3. The Run dialog's ready event: GetPropW on the dialog's thread (see above).
 4. MessageBox's third line; the caret left behind by the closed Run dialog.
 5. DIB sections write back on GdiFlush only; Windows host: ole32's DllMain twice.
+
+### Stage 7, eighth session: the taskbar button, icons, the Run dialog's event (done)
+
+Scratch: `/home/netlab/w2k-s8` (disk-backed), deleted at the end. pcrecomp w2k-linux a820093.
+Shots (not in git): `shots/linux-s8/` (`s8_*.png`). A live session's syscall trace can now be
+switched on and off around one click: `kill -USR1 PID` (ntposix, both trace flags).
+
+**Minimize/restore from the taskbar button.** The taskband's NM_CLICK handler (explorer
+0x010061B8) takes GetMessagePos, ScreenToClient, TCM_HITTEST, and acts only when the hit is the
+selected tab. Three things stood in the way, found in that order from the trace:
+- `GetMessagePos` (NtUserCallNoParam 5) answered 0: every hit test missed. It now answers the
+  cursor of the last message retrieved.
+- The handler minimizes only when the button's window is *not* GetForegroundWindow. The taskband
+  answers WM_MOUSEACTIVATE over its buttons with MA_NOACTIVATE, so nothing activates, but on NT
+  the click still moves the foreground queue to the shell's thread (GetForegroundWindow is then
+  not the app). The stand-in stayed foreground here; a click on the shell that activates nothing
+  now clears it when a child's stand-in had it.
+- Its can-minimize test (sub_0100C811) asks GetMenuState(GetSystemMenu(hwnd), SC_MINIMIZE): the
+  system menu was empty, so -1 (greyed). NtUserGetSystemMenu now has win32k's standard items.
+Then it posts WM_SYSCOMMAND SC_MINIMIZE to the stand-in, forwarded to the child. The second click
+restores through SwitchToThisWindow (NtUserCallHwndParamLock 0x56), now answered (restore if
+minimized, then activate).
+
+**Taskbar icons.** The taskband draws each button with DrawCaptionTemp(DC_ICON) and no icon, so
+the window's class icon: the stand-in had the desktop's class. The child now samples its
+window's class icon (small one if any) at 16x16 into the shared window list; the shell makes the
+stand-in an icon of those pixels (mask + colour bitmaps) for DrawCaptionTemp and WM_GETICON.
+
+**The Run dialog's ready event.** Not the window-handle check: with the trace, shell32 does read
+"WaitingThreadID" (GetPropW works on that thread) and calls OpenEvent("MSShellRunDlgReady"), but
+NtOpenEvent was `s_not_found`, and NtCreateEvent ignored names. ntposix now keeps named events
+(per process): CreateEvent of an existing name opens it (STATUS_OBJECT_NAME_EXISTS), NtOpenEvent
+finds it. The tray's wait returns at once.
+
+**Message box text.** Window text was capped at 127 characters (uobj text[128], CreateWindowEx's
+name buffer, WM_SETTEXT, DefSetText): the 2nd line ended mid-word and the rest was gone. Now 511;
+the desktop heap copy grows to 1024 bytes only for a long text.
+
+**The caret after the Run dialog.** The Run dialog is hidden, not destroyed, while its message box
+is up, and the caret overlay did not check visibility: it now draws only on a visible window.
+
+**B4 (the box).** pid 678866 was this project's: `bash -c while pgrep -u netlab -f "linux_build.sh
+ntexplorer_lx" ...; tail /tmp/w2k-ex/build_ex.log` (an earlier session's build watcher). It never
+ended because its own command line matched the pgrep pattern. Stopped (SIGTERM); nothing else.

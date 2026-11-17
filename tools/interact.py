@@ -11,14 +11,19 @@ notepad: start, text typed into its edit control (WM_CHAR).
 calc: start, 12+3= pressed (WM_COMMAND with the buttons' IDs).
 The mines are the same in both (W2K_FIXED_TICK: winmine seeds with
 GetTickCount). Shots: shots/<run>_<build>_<t>.png.
-Two columns: "stage1" (the host-comctl32 build; informational, since the lifted
-builds load Windows 2000's own comctl32 and differ by design) and "golden",
-the gate: the lifted shot against its approved golden (shots/golden/, local;
-tools/golden.json, committed, holds each golden's RGB sha256). The exit code
-is 1 when a lifted shot has no golden or differs from it.
-Re-approve (after checking the new lifted shots by eye with the Read tool):
+Two columns, both checks: "stage1" (the lifted shot against the stage 1 build's,
+always on, any display; no stage 1 build only skips it; informational for
+mspaint/wordpad, whose lifted builds load Windows 2000's own comctl32) and "golden" (against
+the approved golden for this display). Goldens are kept per display, screen size
+and DPI (e.g. 3840x2160@192): shots/golden/<display>/ (local) and that key in
+tools/golden.json (committed, each golden's RGB sha256). The exit code is 1 when
+a lifted shot differs from either. With no goldens for this display the golden
+column says "SKIP: no golden for this display"; that fails only with --strict.
+Approve (after checking the new lifted shots by eye with the Read tool, and
+against stage 1 at 0 px):
     py -3 tools/interact.py --approve [app ...]
-which copies this run's lifted shots to shots/golden and rewrites their hashes.
+which copies this run's lifted shots to shots/golden/<display> and rewrites
+their hashes under this display's key.
 Event-driven (hiddenrun --settle): each step waits for the previous one to
 settle; the step times (x2) are only limits. sol's status bar (Time:, the host
 build's own clock) is left out of the check and the comparison.
@@ -53,11 +58,20 @@ APPS = {
 # ponytail: these paint a last piece >1.5 s after going still (sol's last card flip, freecell's
 # Cards Left, packager's Appearance pane); a longer hold, not a per-app wait
 SLOW = ('sol', 'freecell', 'packager')
+S1_DIFFERS = ('mspaint', 'wordpad')   # stage 1 column informational only for these (see below)
 import time
 T0 = time.time()
 env = dict(os.environ, PCRECOMP_MUTE='1', MSYS_NO_PATHCONV='1', W2K_FIXED_TICK='12345', W2K_FIXED_TIME='1000000000')   # (sol's and freecell's deals)
-APPROVE = '--approve' in sys.argv
-ARGS = [a for a in sys.argv[1:] if a != '--approve']
+APPROVE, STRICT = '--approve' in sys.argv, '--strict' in sys.argv
+ARGS = [a for a in sys.argv[1:] if a not in ('--approve', '--strict')]
+def display():   # the session's screen in physical pixels and the DPI the shell applied (AppliedDPI)
+    import winreg
+    u = ctypes.windll.user32; u.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+    try: dpi = winreg.QueryValueEx(winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Control Panel\Desktop\WindowMetrics'), 'AppliedDPI')[0]
+    except OSError: dpi = u.GetDpiForSystem()
+    return '%dx%d@%d' % (u.GetSystemMetrics(0), u.GetSystemMetrics(1), dpi)
+DISP = display()
+print('display', DISP)
 RUNS = [(app, run, steps) for app in (ARGS or APPS) for run, steps in APPS[app]]
 for app, run, steps in RUNS:
     shots = [t for _, t, _ in steps]
@@ -73,19 +87,20 @@ for app, run, steps in RUNS:
         for t in shots:
             cmd += ['--shot', str(t)]
         cmd += extra + ['--out', os.path.join(ROOT, 'shots', '%s_%s' % (run, build)), '--',
-                        os.path.join(ROOT, 'build', build + '.exe'), '--mute', '--watchdog', str(int(2 * max(shots)) - 1)]   # (before hiddenrun's last limit: a hang leaves its watchdog dump in the log)
+                        os.path.join(ROOT, 'build', build + '.exe'), '--mute', '--watchdog', str(int(2 * max(shots)) + 2)]   # (after the last shot's limit, 2x, which winmine's ticking clock can use up; before hiddenrun's --secs: a hang leaves its watchdog dump in the log)
         r = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
         open(os.path.join(ROOT, "shots", "%s_%s.out" % (run, build)), "w").write(r.stdout + r.stderr)   # hiddenrun's timeline, for a missing shot
 import hashlib, json, shutil
-GDIR, GMAN = os.path.join(ROOT, 'shots', 'golden'), os.path.join(ROOT, 'tools', 'golden.json')
-man = json.load(open(GMAN)) if os.path.exists(GMAN) else {}
+GDIR, GMAN = os.path.join(ROOT, 'shots', 'golden', DISP), os.path.join(ROOT, 'tools', 'golden.json')
+allman = json.load(open(GMAN)) if os.path.exists(GMAN) else {}
+man = allman.get(DISP, {})
 def crop(I, app):   # sol's status bar "Time:" runs on the host build's own clock (W2K_FIXED_TICK freezes only the lifted one)
     I = I.convert('RGB')
     return I.crop((0, 0, I.size[0], I.size[1] - 26)) if app == 'sol' else I
 def ndiff(A, B):
     if A.size != B.size: return 'size %dx%d vs %dx%d' % (A.size + B.size)
     return str(sum(1 for p in ImageChops.difference(A, B).get_flattened_data() if p != (0, 0, 0)))
-fails = 0
+fails = skips = 0
 for app, name, t, run in ((app, n, t, r) for app, r, steps in RUNS for n, t, _ in steps):
     a, b = (os.path.join(ROOT, 'shots', '%s_%s_%d.png' % (run, k, int(t))) for k in (app, 'nt' + app))
     for f in (a, b):
@@ -95,10 +110,14 @@ for app, name, t, run in ((app, n, t, r) for app, r, steps in RUNS for n, t, _ i
         continue
     B = crop(Image.open(b), app)
     s1 = ndiff(crop(Image.open(a), app), B) if os.path.exists(a) else 'missing'
+    # (no stage 1 build: skipped; mspaint/wordpad's lifted builds load Windows 2000's own comctl32 toolbar, stage 1 the host's: by design)
+    if s1 != '0' and app not in S1_DIFFERS and os.path.exists(os.path.join(ROOT, 'build', app + '.exe')): fails += 1
     key, h = os.path.basename(b), hashlib.sha256(B.tobytes()).hexdigest()
     g = os.path.join(GDIR, key)
     if APPROVE:
         os.makedirs(GDIR, exist_ok=True); shutil.copy(b, g); man[key] = h; gs = 'approved'
+    elif not man:
+        gs = 'SKIP: no golden for this display'; skips += 1
     elif key not in man:
         gs = 'NO GOLDEN'; fails += 1
     elif man[key] == h:
@@ -109,5 +128,7 @@ for app, name, t, run in ((app, n, t, r) for app, r, steps in RUNS for n, t, _ i
         gs = 'FAIL ' + (ndiff(crop(Image.open(g), app), B) if os.path.exists(g) else 'hash') + ' px'; fails += 1
     print('%-8s %-13s %dx%d  stage1 %-8s golden %s' % (app, name, B.size[0], B.size[1], s1, gs))
 if APPROVE:
-    json.dump(dict(sorted(man.items())), open(GMAN, 'w'), indent=1); open(GMAN, 'a').write('\n')
-sys.exit(1 if fails else 0)
+    allman[DISP] = dict(sorted(man.items()))
+    json.dump(dict(sorted(allman.items())), open(GMAN, 'w'), indent=1); open(GMAN, 'a').write('\n')
+if skips: print('SKIP: no golden for this display (%s; goldens for %s)' % (DISP, ', '.join(allman) or 'none'))
+sys.exit(1 if fails or (skips and STRICT) else 0)

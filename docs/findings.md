@@ -1,5 +1,17 @@
 # Findings
 
+## Status: done (both hosts)
+
+Windows 2000's own userland runs statically lifted, without an emulator, on both hosts. On
+Windows 11 (native32): the accessories (stage 1, and stage 3 on their own lifted user32/gdi32),
+cmd.exe on its own ntdll/kernel32, and explorer with Control Panel applets, all boxed; gates:
+interact (display-aware goldens + stage 1), work/scen.sh 15/15, filebox_check 13/13,
+hostsettings unchanged. On Linux: see docs/linux.md (explorer, taskbar, Start menu, programs in
+one screen, minimize/restore). Remaining gaps: ole32's DllMain twice on the Windows host (last
+section), charmap's host fonts, trackbar backgrounds, Clipboard (NetDDE), console windows; on
+Linux a child's caption not greyed under the shell's foreground, per-process named objects, DIB
+write-back on GdiFlush only, one clip rectangle per DC, no sound.
+
 ## Stage 1: accessories on native32 (host DLLs)
 
 | App | Lifted functions | Result |
@@ -2466,3 +2478,20 @@ is not changed for it yet.
   does), or answer NtAreMappedFilesTheSame / the module lookup by base name
   for a lifted image that is already loaded. Then the Windows run takes the
   same path as Linux (and the ~CLBCATQ.DLL marker decides).
+
+### interact goldens per display (final pass)
+
+The host display changed to an RDP-sized session (1804x972, AppliedDPI 192); every golden
+(3840x2160@192) failed on size while stage 1 and the lifted builds still matched at 0.
+tools/golden.json is now keyed by display (`WxH@DPI`: the session's physical size and
+HKCU WindowMetrics AppliedDPI), the PNGs in shots/golden/<display>/. With no goldens for the
+current display the golden column says "SKIP: no golden for this display" (exit 1 only with
+`--strict`). The stage 1 column is now a check too (any display), except mspaint/wordpad, whose
+lifted builds load Windows 2000's own comctl32 (6,022 / 4,894 px by design). 21 goldens approved
+for 1804x972@192 after checking each by eye and stage 1 at 0. interact's watchdog moved past the
+last shot's 2x limit: winmine's ticking clock used the limits up and the watchdog (19 s) ended the
+run before its `custom` shot (both builds alike).
+
+Results: interact 21/21 (stage 1 0 where checked), work/scen.sh 15/15 PASS, filebox_check 13/13
+(one earlier run printed `FAIL dir | more`: the child runners' `[filebox]` line interleaved with
+the piped output; 13/13 in three runs after), hostsettings unchanged.
