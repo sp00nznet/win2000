@@ -35,6 +35,7 @@ else
   CARDS=; [ -d "gen/$APP/cards" ] && CARDS=-DW2K_CARDS
   [ -d "gen/$APP/mfc42u" ] && CARDS="$CARDS -DW2K_MFC"
   [ -d "gen/$APP/riched20" ] && CARDS="$CARDS -DW2K_RICHED"
+  [ -d "gen/$APP/shell32" ] && CARDS="$CARDS -DW2K_EXPLORER"
   gcc $HOST -DW2K_GUI $CARDS "-DW2K_EXE=\"$EXE.exe\"" -c src/nthost_linux.c -o obj/nthost_$EXE.o
   gcc -m32 -no-pie "$O"/*.o obj/ntposix.o obj/w32klayout.o obj/w32kposix.o obj/nthost_$EXE.o $LX -lpthread -lm -o "$EXE-linux"
   echo "built ./$EXE-linux"

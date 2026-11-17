@@ -42,7 +42,8 @@ def main():
         stem = os.path.basename(m).lower()
         cat = os.path.join(cat_dir, stem + '.functions.json')
         # work/seeds/<file>.json: functions a run found unresolved (ICALL), re-catalogued when newer
-        seeds = os.path.join(ROOT, 'work', 'seeds', stem + '.json')
+        # (a set with its own catalogs has its own seeds: work/seeds-lx for the _lx sets, started as a copy)
+        seeds = os.path.join(ROOT, 'work', 'seeds-lx' if cat_dir.endswith('cat-lx') else 'seeds', stem + '.json')
         seeds = seeds if os.path.exists(seeds) else None
         # a module rebased since its catalog (ulib moved off user32's base: 0 functions lifted, silently)
         moved = os.path.exists(cat) and json.load(open(cat)).get('image_base') != \

@@ -165,6 +165,14 @@ static const struct { const char* name; uint32_t base; } g_mods[] = {
 #ifdef W2K_RICHED
     { "riched20.dll", 0x20700000u },               /* wordpad */
 #endif
+#ifdef W2K_EXPLORER
+    /* the shell (work/rebased-shell, the Win11 explorer set) and Windows 2000's own advapi32 (work/lx/reb):
+     * with no host registry, its Reg* go through the guest ntdll to the registry box */
+    { "comctl32.dll", 0x20800000u }, { "shlwapi.dll", 0x20900000u }, { "shell32.dll", 0x20A00000u },
+    { "browseui.dll", 0x20D00000u }, { "shdocvw.dll", 0x20E00000u }, { "ole32.dll", 0x21000000u },
+    { "oleaut32.dll", 0x21100000u }, { "rpcrt4.dll", 0x21200000u }, { "actxprxy.dll", 0x21300000u },
+    { "clbcatq.dll", 0x21500000u }, { "mydocs.dll", 0x21600000u }, { "advapi32.dll", 0x21F00000u },
+#endif
 };
 /* W2K_FIXED_TICK=n / W2K_FIXED_TIME=s, as on Windows (src/nthost.c): the
  * same mines and deals as the Windows runs */
@@ -185,6 +193,80 @@ static const struct { const char* name; uint32_t base; } g_mods[] = {
 static int g_argc;
 static char** g_argv;
 
+#ifdef W2K_EXPLORER
+#include <signal.h>
+#include <sys/prctl.h>
+/* CreateProcessW/A(app, cmdline, psa, tsa, inherit, flags, env, dir, si, pi): the guard's launch
+ * path, as src/nthost.c's on Windows. The program must be a lifted one with a runner next to ours
+ * (winmine.exe: ./winmine-linux, built from its lift); that runner starts as our child process with
+ * the guest's arguments, on the same root and display, and dies with us. Anything else is refused:
+ * an original Windows program never runs. ponytail: no process or thread handle (0 in both);
+ * WaitForSingleObject on a child is answered when something needs it. */
+static char g_root[PATH_MAX];
+static int g_live;
+static void host_createprocess(int ansi) {
+    char name[1024] = "", args[2048] = "", stem[64], run[PATH_MAX + 80], self[PATH_MAX];
+    uint32_t app = ARG(0), cl = ARG(1), pi = ARG(9);
+    for (int w = 0; w < 2; w++) {                  /* the app name, else the command line's first token */
+        uint32_t s = w ? cl : app;
+        char* o = w ? args : name;
+        size_t cap = w ? sizeof args : sizeof name, n = 0;
+        if (!s) continue;
+        for (uint32_t c; n < cap - 1 && (c = ansi ? MEM8(s + n) : MEM16(s + 2 * n)); n++) o[n] = c < 0x80 ? (char)c : '?';
+        o[n] = 0;
+    }
+    const char* a = args;
+    while (*a == ' ') a++;
+    const char* t0 = a, *t1;
+    if (*a == '"') { t0 = ++a; t1 = strchr(a, '"'); a = t1 ? t1 + 1 : a + strlen(a); if (!t1) t1 = a; }
+    else { while (*a && *a != ' ') a++; t1 = a; }
+    if (!name[0]) snprintf(name, sizeof name, "%.*s", (int)(t1 - t0), t0);
+    const char* b = name;
+    for (const char* p = name; *p; p++) if (*p == '\\' || *p == '/' || *p == ':') b = p + 1;
+    size_t k = 0;
+    for (; b[k] && b[k] != '.' && k < sizeof stem - 1; k++) stem[k] = (char)(b[k] >= 'A' && b[k] <= 'Z' ? b[k] + 32 : b[k]);
+    stem[k] = 0;
+    ssize_t sl = readlink("/proc/self/exe", self, sizeof self - 1);
+    self[sl > 0 ? sl : 0] = 0;
+    char* d = strrchr(self, '/');
+    if (d) *d = 0;
+    snprintf(run, sizeof run, "%s/%s-linux", self, stem);
+    int ok = k && strspn(stem, "abcdefghijklmnopqrstuvwxyz0123456789_") == k && !access(run, X_OK)
+             && (!b[k] || !strcasecmp(b + k, ".exe"));
+    if (!ok) {
+        fprintf(stderr, "[guard] %s: a program that is not lifted: not run\n", name);
+        g_eax = 0, g_esp += 4 + 40;
+        return;
+    }
+    while (*a == ' ') a++;
+    fprintf(stderr, "[launch] %s -> %s %s\n", name, run, a);
+    pid_t pid = fork();
+    if (pid == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+        if (chdir(g_root)) _exit(127);
+        char* av[] = { run, "--root", g_root, g_live ? "--live" : "--mute", *a ? "--" : NULL, (char*)a, NULL };
+        if (!*a) av[4] = NULL;
+        execv(run, av);
+        _exit(127);
+    }
+    if (pi) MEM32(pi) = 0, MEM32(pi + 4) = 0, MEM32(pi + 8) = (uint32_t)pid, MEM32(pi + 12) = (uint32_t)pid;
+    g_eax = pid > 0, g_esp += 4 + 40;
+}
+/* GetUserNameW/A(buf, size*): advapi32 asks LSA (an RPC to \PIPE\lsarpc), and no LSA runs here.
+ * The profile's user: "user" (USERNAME in the guest's environment, the box's profile folders). */
+static void host_getusername(int ansi) {
+    uint32_t b = ARG(0), n = ARG(1);
+    if (!n || MEM32(n) < 5) { if (n) MEM32(n) = 5; g_eax = 0, g_esp += 12; return; }
+    for (int i = 0; i < 5; i++) { char c = "user"[i]; if (ansi) MEM8(b + i) = (uint8_t)c; else MEM16(b + 2 * i) = (uint8_t)c; }
+    MEM32(n) = 5;
+    g_eax = 1, g_esp += 12;
+}
+static void host_getusernamew(void) { host_getusername(0); }
+static void host_getusernamea(void) { host_getusername(1); }
+static void host_createprocessw(void) { host_createprocess(0); }
+static void host_createprocessa(void) { host_createprocess(1); }
+#endif
+
 static void* host_main(void* rcp) {
     char root[PATH_MAX], sys[PATH_MAX] = "", nls[PATH_MAX] = "", cd[1024] = "", cmdline[4096] = "C:\\WINNT\\system32\\" W2K_EXE_NAME;
 #ifdef W2K_GUI
@@ -198,6 +280,7 @@ static void* host_main(void* rcp) {
         else if (!strcmp(g_argv[i], "--nls") && i + 1 < g_argc) { if (!realpath(g_argv[++i], nls)) { perror(g_argv[i]); exit(1); } }
         else if (!strcmp(g_argv[i], "--cd") && i + 1 < g_argc) snprintf(cd, sizeof cd, "%s", g_argv[++i]);
         else if (!strcmp(g_argv[i], "--mute")) ;          /* nothing makes a sound here */
+        else if (!strcmp(g_argv[i], "--regbox") && i + 1 < g_argc) ntp_regbox(g_argv[++i]);   /* the registry box file */
 #ifdef W2K_GUI
         else if (!strcmp(g_argv[i], "--names") && i + 1 < g_argc) snprintf(names, sizeof names, "%s", g_argv[++i]);
         else if (!strcmp(g_argv[i], "--fonts") && i + 1 < g_argc) snprintf(fonts, sizeof fonts, "%s", g_argv[++i]);
@@ -230,10 +313,14 @@ static void* host_main(void* rcp) {
     }
 #ifdef W2K_GUI
     (void)g_user32, (void)g_advapi32;
+#ifdef W2K_EXPLORER
+    (void)g_advapi32_gui, (void)g_shell32, (void)g_ole32;   /* all three lifted */
+#else
     ntp_proxy("advapi32.dll", g_advapi32_gui, sizeof g_advapi32_gui / sizeof g_advapi32_gui[0]);
     ntp_proxy("shell32.dll", g_shell32, sizeof g_shell32 / sizeof g_shell32[0]);
-    ntp_proxy("winmm.dll", g_winmm, 1);
     ntp_proxy("ole32.dll", g_ole32, sizeof g_ole32 / sizeof g_ole32[0]);
+#endif
+    ntp_proxy("winmm.dll", g_winmm, 1);
     ntp_proxy("imm32.dll", g_imm32, sizeof g_imm32 / sizeof g_imm32[0]);
     ntp_proxy("comdlg32.dll", g_comdlg32, sizeof g_comdlg32 / sizeof g_comdlg32[0]);
     ntp_proxy("winspool.drv", g_winspool, sizeof g_winspool / sizeof g_winspool[0]);
@@ -273,6 +360,15 @@ static void* host_main(void* rcp) {
     if (getenv("W2K_FIXED_TICK")) ntp_replace(ntp_export(0x20100000u, "GetTickCount"), fixed_tick);
     if (getenv("W2K_FIXED_TIME")) ntp_replace(ntp_export(0x20200000u, "time"), fixed_time);
     w2kx_start();
+#endif
+#ifdef W2K_EXPLORER
+    snprintf(g_root, sizeof g_root, "%s", root);
+    for (int i = 1; i < g_argc; i++) if (!strcmp(g_argv[i], "--live")) g_live = 1;
+    signal(SIGCHLD, SIG_IGN);                      /* the children reap themselves */
+    ntp_replace(ntp_export(0x20100000u, "CreateProcessW"), host_createprocessw);
+    ntp_replace(ntp_export(0x20100000u, "CreateProcessA"), host_createprocessa);
+    ntp_replace(ntp_export(0x21F00000u, "GetUserNameW"), host_getusernamew);
+    ntp_replace(ntp_export(0x21F00000u, "GetUserNameA"), host_getusernamea);
 #endif
     fprintf(stderr, "%s: %u lifted functions, entering 0x%08X\n", W2K_EXE_NAME, recomp_dispatch_count, entry);
     ntp_call(entry, 0, NULL);
