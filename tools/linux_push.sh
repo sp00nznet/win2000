@@ -20,9 +20,11 @@ if [ -d "src/gen/$APP/explorer" ]; then
   # explorer's own --sys (DIR/sys-ex, its C:\WINNT\system32): the shell set's ntdll..gdi32 are not the
   # GUI set's that a launched NAME-linux maps from root/sys. ~clbcatq.dll is Windows 2000's own "no
   # COM+ catalog" marker (ole32 checks System32\~CLBCATQ.DLL; it is never loaded): ole32 takes the
-  # registry, as on Windows (docs/linux.md). winmine.exe is a name for Run's search; the launch path
+  # registry, as on Windows (docs/linux.md). winmine.exe ... are Windows 2000's own files, as data: Run's
+  # search and the Start menu's shortcuts resolve them, and their icons come from them. The launch path
   # starts ./winmine-linux, never a file.
-  ssh "$HOST" ": > $DIR/sys-ex/~clbcatq.dll; for e in winmine notepad calc sol freecell mspaint wordpad; do : > $DIR/sys-ex/$e.exe; done"
+  ssh "$HOST" ": > $DIR/sys-ex/~clbcatq.dll"
+  tar cf - -C work/sys winmine.exe notepad.exe calc.exe sol.exe freecell.exe mspaint.exe wordpad.exe | ssh "$HOST" "tar xf - -C $DIR/sys-ex"
   tar cf - -C work/lx explorer.box | ssh "$HOST" "tar xf - -C $DIR"
   tar cf - -C work/profile/C "Documents and Settings" | ssh "$HOST" "mkdir -p $DIR/root/TEMP && tar xf - -C $DIR/root"
   TT=$(cd work/fonts && ls lucon.ttf tahoma.ttf marlett.ttf 2>/dev/null || true)

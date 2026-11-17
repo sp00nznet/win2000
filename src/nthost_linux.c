@@ -16,6 +16,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include "ntposix.h"
 #ifdef W2K_GUI
@@ -314,6 +315,12 @@ static void* host_main(void* rcp) {
     ntp_init();
     ntp_mount("C:", root);
     ntp_mount("C:\\WINNT\\system32", sys);
+    {   /* the mount point's own directories under C:\, as on a real drive: a search of C:\ for WINNT
+         * (FindFirstFile, shell32's link resolver walking C:\WINNT\system32\notepad.exe) found none */
+        char p[PATH_MAX + 32];
+        snprintf(p, sizeof p, "%s/WINNT", root), mkdir(p, 0755);
+        snprintf(p, sizeof p, "%s/WINNT/system32", root), mkdir(p, 0755);
+    }
     for (size_t i = 0; i < sizeof g_mods / sizeof g_mods[0]; i++) {
         char p[PATH_MAX + 64];
         snprintf(p, sizeof p, "%s/%s", sys, g_mods[i].name);
