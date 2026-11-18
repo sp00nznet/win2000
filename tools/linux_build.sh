@@ -17,7 +17,8 @@ INC="-Ipcrecomp/runtime/recomp32 -Ipcrecomp/runtime/native32 -Igen/$APP"
 case $ARCH in
   i386)    CC=gcc M=-m32 LIB=/usr/lib/i386-linux-gnu SFX= MEM="-DRECOMP_FLAT_MEMORY" ;;
   x86_64)  CC=gcc M=-m64 LIB=/usr/lib/x86_64-linux-gnu SFX=-x64 ;;
-  aarch64) CC=aarch64-linux-gnu-gcc M= LIB=/usr/lib/aarch64-linux-gnu SFX=-a64 ;;
+  aarch64) CC=aarch64-linux-gnu-gcc M= LIB=/usr/lib/aarch64-linux-gnu SFX=-a64
+           [ "$(uname -m)" = aarch64 ] && CC=gcc ;;   # (on an arm64 box: its own gcc)
   *) echo "ARCH: i386, x86_64 or aarch64"; exit 1 ;;
 esac
 [ "$ARCH" = i386 ] || MEM="-DRECOMP_MEM_BASE=${MEM_BASE:-0x2000000000ull}"   # below a 39-bit arm64 kernel's 512 GB

@@ -97,7 +97,8 @@ own mappings land high (0xF7xxxxxx), above everything the guest gets.
 
 A based x86_64 build stays possible later: the lift supports
 `RECOMP_MEM_BASE`, and the page map already treats guest memory as one 4 GB
-space.
+space. Done since: `ARCH=x86_64` and `ARCH=aarch64` builds of the same lifted
+C, guest based (docs/a64.md).
 
 ## Layout
 
