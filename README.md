@@ -137,6 +137,7 @@ py -3 ..\pcrecomp\tools\pe\rebase.py work\sys work\rebased cmd.exe ntdll.dll=0x2
 py -3 tools\lift.py cmd work\rebased\cmd.exe work\rebased\ntdll.dll work\rebased\kernel32.dll work\rebased\msvcrt.dll
 build.cmd --target cmd
 set PCRECOMP_MUTE=1
+set PCRECOMP_FILEBOX=%CD%\work\profile
 build\cmd.exe --mute -- /c ver
 ```
 
