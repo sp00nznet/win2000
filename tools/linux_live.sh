@@ -5,7 +5,8 @@
 #   sh ../linux_live.sh sol out/live "mousemove 60 100" "click 1" "sleep 1" "shot deck"
 #   sh ../linux_live.sh notepad out/np "type 'Hello, Windows 2000'" "key Return" "shot typed"
 # Each step is an xdotool command line run against the app's X window, or
-# "shot NAME" (an xwd of the window, as OUT_NAME.png). The app runs with
+# "shot NAME" (an xwd of the window, as OUT_NAME.png). SFX=-x64 / -a64 runs a
+# 64-bit build (docs/a64.md). The app runs with
 # --live (w32kposix's X11 frontend, real input). With a DISPLAY already set
 # (a real X server, ssh -X) it uses that one and skips Xvfb.
 set -eu
@@ -18,10 +19,10 @@ if [ -z "${DISPLAY:-}" ]; then
   XV=$!
   sleep 1
 fi
-"../$APP-linux" --live ${LIVEARGS:-} > "$OUT.log" 2>&1 &   # LIVEARGS: explorer's --sys/--regbox/--screen
+"../$APP-linux${SFX:-}" --live ${LIVEARGS:-} > "$OUT.log" 2>&1 &   # LIVEARGS: explorer's --sys/--regbox/--screen
 P=$!
 W=
-for i in $(seq 50); do W=$(xdotool search --name "Windows 2000" 2>/dev/null | head -1) && [ -n "$W" ] && break; sleep 0.2; done
+for i in $(seq 300); do W=$(xdotool search --name "Windows 2000" 2>/dev/null | head -1) && [ -n "$W" ] && break; sleep 0.2; done
 [ -n "$W" ] || { echo "no window"; cat "$OUT.log"; kill $P; [ -n "$XV" ] && kill $XV; exit 1; }
 sleep 2
 for s in "$@"; do

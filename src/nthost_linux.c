@@ -23,6 +23,9 @@
 #include "w32kposix.h"
 #endif
 
+#ifndef W2K_SFX
+#define W2K_SFX ""
+#endif
 #define ARG(n) MEM32(g_esp + 4 + 4 * (n))
 #define RET(v, n) do { g_eax = (v); g_esp += 4 + 4 * (n); } while (0)
 
@@ -231,7 +234,7 @@ static void host_createprocess(int ansi) {
     self[sl > 0 ? sl : 0] = 0;
     char* d = strrchr(self, '/');
     if (d) *d = 0;
-    snprintf(run, sizeof run, "%s/%s-linux", self, stem);
+    snprintf(run, sizeof run, "%s/%s-linux%s", self, stem, W2K_SFX);   /* a 64-bit shell starts 64-bit runners */
     int ok = k && strspn(stem, "abcdefghijklmnopqrstuvwxyz0123456789_") == k && !access(run, X_OK)
              && (!b[k] || !strcasecmp(b + k, ".exe"));
     if (!ok) {
