@@ -57,6 +57,25 @@ explorer and the programs its Start menu starts as i386 Linux programs (about
 an hour on four cores, and about 6 GB with the folder), and leaves **`Windows 2000 (recomp).sh`**, which opens explorer in
 an X11 window. Details: [docs/linux.md](docs/linux.md).
 
+**64-bit Linux and arm64.** The same lifted tree also builds as a native 64-bit
+program; nothing is re-lifted. Windows 2000's 4 GB sit at one base address in
+the 64-bit process ([docs/a64.md](docs/a64.md)):
+
+```
+./setup.sh --arch x86_64     # x86-64 Linux: needs only gcc and libx11-dev
+./setup.sh --arch aarch64    # arm64 Linux (a Raspberry Pi, an arm64 VM); the default on arm64
+```
+
+The programs are `explorer-linux-x64` / `explorer-linux-a64`, and the launcher runs
+the right one. **Tested:** x86-64 on Debian 13 (cmd, winmine and explorer, with
+winmine's shots byte-identical to the i386 build's). **Not yet tested on real
+arm64 hardware:** the arm64 build was cross-compiled and run under
+`qemu-aarch64` user mode, which emulates the arm64 *host* CPU (Windows 2000's
+code is still static C compiled for arm64), and there it runs cmd, winmine and
+explorer with the same byte-identical shots. Speed and 16 KB-page kernels
+(Raspberry Pi 5, Asahi) are untested. A macOS host (Apple silicon) is planned in
+docs/a64.md, not built.
+
 ## Status
 
 **Windows 2000 on Linux: done.** Its own explorer, statically lifted, runs on Debian as an
@@ -67,6 +86,10 @@ taskbar button and icon; a click on that button minimizes and restores it. Known
 caption does not grey while the shell has the foreground, named kernel objects are per process,
 DIB sections write back on GdiFlush only, one clip rectangle per DC, no sound.
 Details: [docs/linux.md](docs/linux.md).
+
+**64-bit hosts: x86-64 done, arm64 under qemu.** The same explorer, Start -> Run -> winmine and cmd
+run as native x86-64 Linux programs, and as arm64 programs under qemu-aarch64 (no arm64 hardware
+tested yet), with no re-lift: [docs/a64.md](docs/a64.md).
 
 **Windows 2000 on Windows 11: done.** Stages 1-3 and explorer run lifted on native32, boxed
 (registry box, drive sandbox). Known gaps: ole32's DllMain runs twice on the Windows host
@@ -79,6 +102,7 @@ Keyboard, Clipboard (NetDDE), console windows.
 | 2 | Win2000's own ntdll + kernel32 + msvcrt lifted and started by ntdll's own LdrInitializeThunk; `int 2Eh` and csrss's LPC port are the only boundary; cmd.exe on top | cmd.exe runs on Pro SP4, Server SP4 and build 2163: ver, echo, cd, dir, if, for, set, exit N |
 | 2L | Stage 2 on Linux: the same lifted C as an i386 ELF, NT services answered on POSIX (no Wine, no emulator; [docs/linux.md](docs/linux.md)) | cmd.exe on Debian 13: `cmd /c ver` and the piped session, same output as on Windows |
 | 3L | Stage 3 on Linux: winmine on its own lifted user32 + gdi32, win32k answered in software (pcrecomp w32kposix.c), PNG shots, scripted input on a virtual clock ([docs/linux.md](docs/linux.md)) | winmine on Debian 13: start, click, Intermediate, Custom 20x30 pixel-identical to the Windows build's client area |
+| 64 | Stages 2L-4L and explorer as 64-bit hosts (`--arch x86_64` / `aarch64`; [docs/a64.md](docs/a64.md)) | x86-64 Debian 13: cmd, winmine (shots byte-identical to i386) and explorer with Run -> winmine; arm64 the same under qemu-aarch64 (not real hardware) |
 | 4L | Stage 4 on Linux: calc, notepad, sol, freecell (cards.dll) on the same software win32k, and a live X11 window with real mouse and keyboard (`--live`; [docs/linux.md](docs/linux.md)) | sol 1 of 224,640 pixels from the Windows build; calc differs only in ClearType glyphs; sol dragged and notepad typed into live under Xvfb |
 | 3 | user32/gdi32 lifted, win32k calls shimmed | winmine, notepad and calc on their own lifted user32 + gdi32 (`build/nt<app>.exe`), pixel-identical to stage 1 in every `tools/interact.py` state: winmine started, clicked, resized, its Custom dialog driven and its menu open; notepad started and typed into; calc started and 12+3= pressed. Sent messages arrive through ntdll's KiUserCallbackDispatcher and user32's own `__fn*` routines. sol and freecell on it too (table identical; no cards on either build while the session screen is 480 wide). All five accessories pixel-identical on lifted gdi32; packager too. mspaint and wordpad (MFC, RichEdit) pixel-identical too |
 
