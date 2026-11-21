@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.0] - 2026-11-20
+
 ### Done
 - Windows 2000 is done on both hosts (README, docs/linux.md, docs/findings.md Status).
 - interact.py's goldens are per display (golden.json keyed `WxH@DPI`); "SKIP: no golden for this

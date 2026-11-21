@@ -1,0 +1,35 @@
+{
+  "title": "Windows 2000",
+  "repo": "sp00nznet/win2000",
+  "accent": "#0a246a",
+  "note": {
+    "windows": "Point it at the folder holding your own Windows 2000 CD image (.iso). The first build takes about 2 hours and 22 GB; leave 25 GB free. Python, Git, 7-Zip and the Visual Studio Build Tools (about 3 GB) are installed if they are missing; Windows asks for permission once. Nothing from Windows is downloaded."
+  },
+  "game": {
+    "name": "Windows 2000 CD image",
+    "files": [
+      "*.iso"
+    ]
+  },
+  "sources": [
+    {
+      "repo": "sp00nznet/pcrecomp",
+      "ref": "main",
+      "dir": "pcrecomp"
+    }
+  ],
+  "setup": {
+    "windows": [
+      "powershell",
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      "tools\\setup.ps1",
+      "-Yes",
+      "-Iso",
+      "{game}"
+    ]
+  },
+  "play": "Windows 2000 (recomp).cmd"
+}
